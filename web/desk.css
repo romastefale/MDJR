@@ -103,6 +103,10 @@ button { cursor: pointer; }
 }
 .sh-pill svg { width: 20px; height: 20px; display: block; }
 .sh-pill path { fill: currentColor; }
+.sh-pill .theme-icon { width: 15px; height: 15px; }
+.sh-pill .theme-icon path,
+.sh-pill .theme-icon circle { fill: none; stroke: currentColor; }
+.sh-pill .theme-icon.moon path { fill: currentColor; stroke: none; }
 .sh-pill b { font-size: 11px; font-weight: 700; }
 .sh-pill[aria-expanded="true"],
 .sh-pill[aria-pressed="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
