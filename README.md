@@ -8,6 +8,6 @@ https://romastefale.github.io/MDJR/
 
 ## Railway
 
-`bot/server.js`. Variável obrigatória: `BOT_TOKEN`. Opcional: `WEBAPP_URL` (padrão o Pages) e `PUBLIC_URL` (o endereço público do bot; se vazio, usa `RAILWAY_PUBLIC_DOMAIN`). O Mini App recebe esse endereço e envia o MP3 para `POST /song`. O bot valida o `initData` e manda o anexo no chat.
+`bot/server.js`. Variável obrigatória: `BOT_TOKEN`. Opcional: `WEBAPP_URL` (padrão o Pages) e `PUBLIC_URL` (padrão `https://mdjr.up.railway.app`). O Mini App envia o MP3 para `POST /song`. O bot valida o `initData` e manda o anexo no chat.
 
 Healthcheck: `GET /health`.

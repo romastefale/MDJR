@@ -10,7 +10,7 @@ const ORIGIN = "https://romastefale.github.io";
 function publicOrigin() {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
   if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
-  return "";
+  return "https://mdjr.up.railway.app";
 }
 
 function launchUrl() {

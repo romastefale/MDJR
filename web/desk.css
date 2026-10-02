@@ -102,7 +102,8 @@ button { cursor: pointer; }
 .sh-pill svg { width: 22px; height: 22px; display: block; }
 .sh-pill path { fill: currentColor; }
 .sh-pill b { font-size: 11px; font-weight: 700; }
-.sh-pill[aria-expanded="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
+.sh-pill[aria-expanded="true"],
+.sh-pill[aria-pressed="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
 .sh-picker {
   position: absolute; z-index: 2; top: calc(100% + 8px); left: 0; width: max-content; max-width: 100%;
   max-height: min(420px, calc(100svh - 120px)); overflow: auto; padding: 6px; border-radius: 22px;
