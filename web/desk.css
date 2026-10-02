@@ -117,6 +117,8 @@ button { cursor: pointer; }
 .menu-list > button[data-on="1"] { background: var(--sel-bg); font-weight: 600; box-shadow: var(--sel-shadow); }
 .menu-list > button:disabled { opacity: 0.35; }
 .menu-list > button span { color: var(--bar-sub); }
+.draft-sub { display: grid; gap: 2px; padding: 0 4px 4px 10px; }
+.draft-sub > button { min-height: 36px; padding: 0 12px; font-size: 13px; }
 
 .plane {
   flex: 1 1 auto; min-height: 88px; position: relative;

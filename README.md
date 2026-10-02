@@ -10,4 +10,4 @@ https://romastefale.github.io/MDJR/
 
 `bot/server.js`. Variável obrigatória: `BOT_TOKEN`. Opcional: `WEBAPP_URL` (padrão o Pages) e `PUBLIC_URL` (padrão `https://mdjr.up.railway.app`). O Mini App envia o MP3 para `POST /song`. O bot valida o `initData` e manda o anexo no chat.
 
-Healthcheck: `GET /health`.
+Monte o volume `mdjr-volume` em `/mdjr-volume`. O progresso e os rascunhos ficam em `users/<id>/`. `GET /drafts` lista nome e data. O comando `/draft` abre a mesma lista.

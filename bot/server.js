@@ -8,7 +8,8 @@ const TOKEN = process.env.BOT_TOKEN || "";
 const WEBAPP = (process.env.WEBAPP_URL || "https://romastefale.github.io/MDJR/").replace(/\/$/, "") + "/";
 const PORT = Number(process.env.PORT || 3000);
 const MAX_SONG = 22 * 1024 * 1024;
-const ORIGIN = "https://romastefale.github.io";
+const VOLUME = process.env.MDJR_VOLUME || "/mdjr-volume";
+const ALLOW = new Set(["https://romastefale.github.io", "https://mdjr.up.railway.app"]);
 
 function publicOrigin() {
   if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
@@ -33,9 +34,8 @@ async function api(method, body) {
 }
 
 function openKeyboard() {
-  const url = launchUrl();
   return {
-    keyboard: [[{ text: "Abrir Math DJ", web_app: { url } }]],
+    keyboard: [[{ text: "Open Math DJ", web_app: { url: launchUrl() } }]],
     resize_keyboard: true,
     is_persistent: true,
   };
@@ -45,18 +45,19 @@ async function setup() {
   const url = launchUrl();
   await api("setMyCommands", {
     commands: [
-      { command: "start", description: "Abrir o Math DJ" },
-      { command: "app", description: "Abrir o Mini App" },
+      { command: "start", description: "Open Math DJ" },
+      { command: "app", description: "Open the app" },
+      { command: "draft", description: "Your drafts" },
     ],
   });
   await api("setChatMenuButton", {
     menu_button: { type: "web_app", text: "Math DJ", web_app: { url } },
   });
-  await api("setMyShortDescription", { short_description: "y = f(x). Mini App." });
+  await api("setMyShortDescription", { short_description: "y = f(x)." });
   console.log("mini app", url);
 }
 
-function chatFromInit(initData) {
+function identityFromInit(initData) {
   const params = new URLSearchParams(initData);
   const hash = params.get("hash") || "";
   params.delete("hash");
@@ -71,13 +72,122 @@ function chatFromInit(initData) {
   if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
   const authDate = Number(params.get("auth_date") || 0);
   if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 86400) return null;
+  let userId = null;
+  let chatId = null;
   try {
-    if (params.get("chat")) return JSON.parse(params.get("chat")).id;
-    if (params.get("user")) return JSON.parse(params.get("user")).id;
+    if (params.get("user")) userId = JSON.parse(params.get("user")).id;
+    if (params.get("chat")) chatId = JSON.parse(params.get("chat")).id;
   } catch {
     return null;
   }
-  return null;
+  if (!userId && !chatId) return null;
+  return { userId: userId || chatId, chatId: chatId || userId };
+}
+
+function chatFromInit(initData) {
+  return identityFromInit(initData)?.chatId ?? null;
+}
+
+function userDir(userId) {
+  const id = String(userId).replace(/[^\d]/g, "");
+  if (!id) return null;
+  try {
+    const dir = path.join(VOLUME, "users", id);
+    fs.mkdirSync(dir, { recursive: true });
+    return dir;
+  } catch {
+    return null;
+  }
+}
+
+function cleanName(value) {
+  const name = String(value || "").replace(/\s+/g, " ").trim().slice(0, 32);
+  return name || "Untitled";
+}
+
+function projectFrom(body, id) {
+  const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 10).map((row) => ({
+    y: String(row?.y || "").slice(0, 500),
+    on: Boolean(row?.on),
+    color: String(row?.color || "").slice(0, 40),
+  })) : [];
+  return {
+    id,
+    name: cleanName(body?.name),
+    updated: Date.now(),
+    seconds: Math.min(1200, Math.max(1, Number(body?.seconds) || 60)),
+    patch: body?.patch && typeof body.patch === "object" ? body.patch : {},
+    rows,
+  };
+}
+
+function writeProject(userId, id, body) {
+  const dir = userDir(userId);
+  if (!dir) return null;
+  const file = id === "progress" ? "progress.json" : `${id}.json`;
+  if (id !== "progress" && !/^[a-f0-9]{8}$/.test(id)) return null;
+  const project = projectFrom(body, id);
+  fs.writeFileSync(path.join(dir, file), JSON.stringify(project));
+  return { id: project.id, name: project.name, updated: project.updated };
+}
+
+function readProject(userId, id) {
+  const dir = userDir(userId);
+  if (!dir) return null;
+  const file = id === "progress" ? "progress.json" : /^[a-f0-9]{8}$/.test(id) ? `${id}.json` : "";
+  if (!file) return null;
+  try {
+    return JSON.parse(fs.readFileSync(path.join(dir, file), "utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function listDrafts(userId) {
+  const dir = userDir(userId);
+  if (!dir) return [];
+  return fs.readdirSync(dir)
+    .filter((name) => /^[a-f0-9]{8}\.json$/.test(name))
+    .map((name) => {
+      try {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+        return { id: data.id, name: data.name || "Untitled", updated: data.updated || 0 };
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean)
+    .sort((a, b) => b.updated - a.updated)
+    .slice(0, 12);
+}
+
+function htmlEscape(value) {
+  return String(value).replace(/[&<>"]/g, (ch) => {
+    if (ch === "&") return "&" + "amp;";
+    if (ch === "<") return "&" + "lt;";
+    if (ch === ">") return "&" + "gt;";
+    return "&" + "quot;";
+  });
+}
+
+function when(ms) {
+  return new Date(ms).toLocaleDateString("en", { month: "short", day: "numeric" });
+}
+
+function appUrl(draftId) {
+  const base = launchUrl();
+  return draftId ? `${base}&draft=${encodeURIComponent(draftId)}` : base;
+}
+
+async function say(chatId, userId, html) {
+  const rich = await api("sendRichMessage", {
+    chat_id: chatId,
+    ephemeral_message_parameters: { receiver_user_id: userId },
+    rich_message: { html, skip_entity_detection: true },
+  });
+  if (rich.ok) return;
+  const plain = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
+  await api("sendMessage", { chat_id: chatId, text: plain });
 }
 
 function readBody(req) {
@@ -126,21 +236,29 @@ function serveWeb(res, urlPath, head) {
   });
 }
 
-function cors(res) {
-  res.setHeader("access-control-allow-origin", ORIGIN);
+function cors(req, res) {
+  const origin = req.headers.origin || "";
+  res.setHeader("access-control-allow-origin", ALLOW.has(origin) ? origin : "https://romastefale.github.io");
   res.setHeader("access-control-allow-headers", "content-type, x-telegram-init-data, x-filename");
-  res.setHeader("access-control-allow-methods", "POST, OPTIONS");
+  res.setHeader("access-control-allow-methods", "GET, POST, OPTIONS");
   res.setHeader("vary", "origin");
 }
 
 async function onMessage(message) {
   const text = message.text || "";
-  if (!text.startsWith("/start") && !text.startsWith("/app")) return;
-  await api("sendMessage", {
-    chat_id: message.chat.id,
-    text: "Math DJ",
-    reply_markup: openKeyboard(),
-  });
+  const command = text.split(/\s|@/)[0];
+  const userId = message.from?.id;
+  if (!userId) return;
+  if (command === "/start" || command === "/app") {
+    await say(message.chat.id, userId, `<p><b>Math DJ</b></p><p>y = f(x)</p><tg-button type="web_app" style="primary" url="${htmlEscape(appUrl())}">Open</tg-button>`);
+    return;
+  }
+  if (command !== "/draft") return;
+  const drafts = listDrafts(userId);
+  const html = drafts.length
+    ? `<p><b>Drafts</b></p>${drafts.map((draft) => `<p><b>${htmlEscape(draft.name)}</b><br/>${htmlEscape(when(draft.updated))}</p><tg-button type="web_app" style="link" url="${htmlEscape(appUrl(draft.id))}">Open</tg-button>`).join("")}`
+    : `<p><b>Drafts</b></p><p>Nothing saved yet.</p><tg-button type="web_app" style="primary" url="${htmlEscape(appUrl())}">Open</tg-button>`;
+  await say(message.chat.id, userId, html);
 }
 
 async function poll() {
@@ -160,20 +278,20 @@ async function poll() {
 }
 
 const server = http.createServer(async (req, res) => {
-  const path = (req.url || "/").split("?")[0];
+  const urlPath = (req.url || "/").split("?")[0];
   if (req.method === "OPTIONS") {
-    cors(res);
+    cors(req, res);
     res.writeHead(204);
     res.end();
     return;
   }
-  if (path === "/health") {
+  if (urlPath === "/health") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ ok: true, service: "mdjr-bot", bot: Boolean(TOKEN), webapp: launchUrl() }));
     return;
   }
-  if (path === "/song" && req.method === "POST") {
-    cors(res);
+  if (urlPath === "/song" && req.method === "POST") {
+    cors(req, res);
     if (!TOKEN) {
       res.writeHead(503, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: false }));
@@ -203,8 +321,44 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
+  if (urlPath === "/drafts" || urlPath === "/drafts/progress" || /^\/drafts\/[a-f0-9]{8}$/.test(urlPath)) {
+    cors(req, res);
+    const who = identityFromInit(req.headers["x-telegram-init-data"] || "");
+    if (!who) {
+      res.writeHead(401, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false }));
+      return;
+    }
+    if (req.method === "GET" && urlPath === "/drafts") {
+      res.writeHead(200, { "content-type": "application/json" });
+      res.end(JSON.stringify(listDrafts(who.userId)));
+      return;
+    }
+    if (req.method === "GET") {
+      const id = urlPath === "/drafts/progress" ? "progress" : urlPath.slice("/drafts/".length);
+      const project = readProject(who.userId, id);
+      res.writeHead(project ? 200 : 404, { "content-type": "application/json" });
+      res.end(JSON.stringify(project || { ok: false }));
+      return;
+    }
+    if (req.method === "POST") {
+      try {
+        const raw = await readBody(req);
+        if (raw.length > 100000) throw new Error("size");
+        const body = JSON.parse(raw.toString("utf8"));
+        const id = urlPath === "/drafts/progress" ? "progress" : crypto.randomBytes(4).toString("hex");
+        const saved = writeProject(who.userId, id, body);
+        res.writeHead(saved ? 200 : 400, { "content-type": "application/json" });
+        res.end(JSON.stringify(saved || { ok: false }));
+      } catch {
+        res.writeHead(400, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false }));
+      }
+      return;
+    }
+  }
   if (req.method === "GET" || req.method === "HEAD") {
-    serveWeb(res, path, req.method === "HEAD");
+    serveWeb(res, urlPath, req.method === "HEAD");
     return;
   }
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
