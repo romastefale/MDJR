@@ -1,0 +1,11 @@
+{
+  "name": "mdjr",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "node bot/server.js"
+  }
+}
