@@ -179,14 +179,11 @@ function appUrl(draftId) {
 }
 
 function linkButton(label, url) {
-  return {
-    type: "button",
-    button: {
-      text: label,
-      style: "success",
-      url,
-    },
-  };
+  return { text: label, style: "success", url };
+}
+
+function buttonRow(label, url) {
+  return { type: "buttons", align: "center", buttons: [linkButton(label, url)] };
 }
 
 async function say(chatId, blocks) {
@@ -259,7 +256,8 @@ async function onMessage(message) {
   if (!userId) return;
   if (command === "/start") {
     await say(message.chat.id, [
-      { type: "paragraph", text: [{ type: "bold", text: "Math DJ" }, " ", linkButton("Open", appUrl())] },
+      { type: "paragraph", text: [{ type: "bold", text: "Math DJ" }] },
+      buttonRow("Open", appUrl()),
     ]);
     return;
   }
@@ -268,14 +266,15 @@ async function onMessage(message) {
   const blocks = drafts.length
     ? [
         { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
-        ...drafts.map((draft) => ({
-          type: "paragraph",
-          text: [linkButton(draft.name, appUrl(draft.id)), ` ${when(draft.updated)}`],
-        })),
+        ...drafts.flatMap((draft) => [
+          { type: "paragraph", text: [{ type: "bold", text: draft.name }, ` ${when(draft.updated)}`] },
+          buttonRow("Open", appUrl(draft.id)),
+        ]),
       ]
     : [
         { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
-        { type: "paragraph", text: ["Nothing saved yet. ", linkButton("Open", appUrl())] },
+        { type: "paragraph", text: "Nothing saved yet." },
+        buttonRow("Open", appUrl()),
       ];
   await say(message.chat.id, blocks);
 }
