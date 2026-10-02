@@ -113,7 +113,7 @@ button { cursor: pointer; }
 .sh-pill .theme-icon circle { fill: none; stroke: currentColor; }
 .sh-pill .theme-icon.moon path { fill: currentColor; stroke: none; }
 .sh-pill b { font-size: 11px; font-weight: 700; }
-.sh-pill[aria-expanded="true"],
+.sh-pill[aria-expanded="true"]:not(.more),
 .sh-pill[aria-pressed="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
 .sh-picker {
   position: absolute; z-index: 2; top: calc(100% + 8px); left: 0; width: max-content; max-width: 100%;
@@ -127,6 +127,7 @@ button { cursor: pointer; }
   border: 0; border-radius: 16px; background: transparent; font-size: 15px; font-weight: 500; text-align: left; white-space: nowrap;
 }
 .menu-list > button[data-on="1"] { background: var(--sel-bg); font-weight: 600; box-shadow: var(--sel-shadow); }
+.menu-list.samples > button[data-on="1"] { background: transparent; font-weight: 500; box-shadow: none; }
 .menu-list > button:disabled { opacity: 0.35; }
 .menu-list > button span { color: var(--bar-sub); }
 .menu-list.samples > button { min-height: 34px; padding: 0 12px 0 14px; border-radius: 12px; font-size: 13px; }
@@ -152,8 +153,9 @@ button { cursor: pointer; }
   font: 12px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
 .fn-row textarea:focus { outline: none; box-shadow: none; }
-.sh-pill:focus-visible, .menu-list > button:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--bar-sub); }
-.sh-pill:focus-visible { border-radius: 999px; }
+button, .sh-pill, .menu-list > button { -webkit-tap-highlight-color: transparent; }
+.sh-pill:focus, .sh-pill:focus-visible,
+.menu-list > button:focus, .menu-list > button:focus-visible { outline: none; box-shadow: none; }
 .fn-row i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--danger); }
 .play-in { position: absolute; left: var(--cap); top: 50%; transform: translate(-50%, -50%); z-index: 5; }
 .more { position: absolute; right: var(--cap); top: 50%; transform: translate(50%, -50%); z-index: 5; }

@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=5`;
+  return `${publicOrigin()}/?v=6`;
 }
 
 async function api(method, body) {
@@ -181,7 +181,7 @@ function when(ms) {
 
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=5&draft=${encodeURIComponent(draftId)}` : `${base}/?v=5`;
+  return draftId ? `${base}/?v=6&draft=${encodeURIComponent(draftId)}` : `${base}/?v=6`;
 }
 
 function linkButton(label, url) {
