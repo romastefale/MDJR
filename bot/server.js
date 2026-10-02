@@ -18,8 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  const origin = publicOrigin();
-  return origin ? `${WEBAPP}?api=${encodeURIComponent(origin)}` : WEBAPP;
+  return `${publicOrigin()}/`;
 }
 
 async function api(method, body) {
@@ -52,7 +51,7 @@ async function setup() {
   await api("setChatMenuButton", {
     menu_button: { type: "web_app", text: "Math DJ", web_app: { url } },
   });
-  await api("setMyShortDescription", { short_description: "y = f(x)." });
+  await api("setMyShortDescription", { short_description: "A formula becomes a song." });
   console.log("mini app", url);
 }
 
@@ -174,8 +173,8 @@ function when(ms) {
 }
 
 function appUrl(draftId) {
-  const base = launchUrl();
-  return draftId ? `${base}&draft=${encodeURIComponent(draftId)}` : base;
+  const base = publicOrigin();
+  return draftId ? `${base}/?draft=${encodeURIComponent(draftId)}` : `${base}/`;
 }
 
 function linkButton(label, url) {
@@ -257,6 +256,7 @@ async function onMessage(message) {
   if (command === "/start") {
     await say(message.chat.id, [
       { type: "paragraph", text: [{ type: "bold", text: "Math DJ" }] },
+      { type: "paragraph", text: "A formula becomes a song." },
       buttonRow("Open", appUrl()),
     ]);
     return;
