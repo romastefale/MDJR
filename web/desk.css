@@ -63,7 +63,7 @@
 * { box-sizing: border-box; }
 html { background-color: var(--page-edge); height: 100%; overflow: hidden; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 html::before {
-  content: ""; position: fixed; z-index: 0; pointer-events: none; top: 0; left: 0; right: 0; height: 100lvh;
+  content: ""; position: fixed; z-index: 0; pointer-events: none; inset: 0;
   background-color: var(--page-edge);
   background-image: var(--page-bg);
   background-repeat: no-repeat;
