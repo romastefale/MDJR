@@ -2,12 +2,13 @@
 <html lang="pt-BR">
   <head>
     <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
     <meta name="color-scheme" content="light dark" />
-    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#8b82e6" />
-    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1646" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#ff3b7a" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#160014" />
     <title>Math DJ Robot</title>
-    <meta name="description" content="Sintetizador matemático. Presets, fórmula nova e exportação MP3." />
+    <meta name="description" content="Sintetizador matemático." />
+    <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
@@ -18,17 +19,17 @@
         if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
         d.setAttribute("data-theme", t);
         d.style.colorScheme = t;
-        var c = t === "dark" ? "#1b1646" : "#8b82e6";
+        var c = t === "dark" ? "#160014" : "#ff3b7a";
         var m = document.querySelectorAll('meta[name="theme-color"]');
         for (var i = 0; i < m.length; i++) m[i].setAttribute("content", c);
       })();
     </script>
-    <style>html,body{margin:0}body{background-color:#8b82e6}html[data-theme=dark] body{background-color:#1b1646}</style>
+    <style>html,body{margin:0;height:100%;overflow:hidden}body{background:#ff3b7a}html[data-theme=dark] body{background:#160014}</style>
     <link rel="stylesheet" href="./desk.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
   <body>
-    <main id="app"></main>
+    <main id="app" class="dj-root"></main>
     <script type="module" src="./app.js"></script>
   </body>
 </html>
