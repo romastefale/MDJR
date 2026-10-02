@@ -132,9 +132,10 @@ button { cursor: pointer; }
 .menu-list.samples > button { min-height: 34px; padding: 0 12px 0 14px; border-radius: 12px; font-size: 13px; }
 
 .plane {
-  flex: 1 1 auto; min-height: 88px; position: relative;
+  flex: 1 1 auto; min-height: 88px; display: flex;
   margin: calc(11px + env(safe-area-inset-top) + 47px + 9px) 11px 7px;
 }
+.plane-card { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; border-radius: 23px; overflow: hidden; }
 .plane canvas { width: 100%; height: 100%; display: block; }
 .mark { position: absolute; top: 8px; right: 10px; font-size: 12px; }
 

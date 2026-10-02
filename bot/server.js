@@ -104,7 +104,7 @@ function cleanName(value) {
 }
 
 function projectFrom(body, id) {
-  const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 10).map((row) => ({
+  const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 5).map((row) => ({
     y: String(row?.y || "").slice(0, 500),
     on: Boolean(row?.on),
     color: String(row?.color || "").slice(0, 40),
