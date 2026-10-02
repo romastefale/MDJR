@@ -3,10 +3,27 @@
   <head>
     <meta charset="utf-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, viewport-fit=cover" />
-    <meta name="theme-color" content="#07080c" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" media="(prefers-color-scheme: light)" content="#8b82e6" />
+    <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#1b1646" />
     <title>Math DJ Robot</title>
     <meta name="description" content="Sintetizador matemático. Presets, fórmula nova e exportação MP3." />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <script>
+      (function () {
+        var d = document.documentElement, t;
+        try { t = localStorage.getItem("lg-theme"); } catch (e) {}
+        if (t !== "light" && t !== "dark") t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        d.setAttribute("data-theme", t);
+        d.style.colorScheme = t;
+        var c = t === "dark" ? "#1b1646" : "#8b82e6";
+        var m = document.querySelectorAll('meta[name="theme-color"]');
+        for (var i = 0; i < m.length; i++) m[i].setAttribute("content", c);
+      })();
+    </script>
+    <style>html,body{margin:0}body{background-color:#8b82e6}html[data-theme=dark] body{background-color:#1b1646}</style>
     <link rel="stylesheet" href="./desk.css" />
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
   </head>
