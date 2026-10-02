@@ -179,7 +179,7 @@ function appUrl(draftId) {
 }
 
 function linkButton(label, url) {
-  return { text: label, style: "success", url };
+  return { text: label, style: "success", web_app: { url } };
 }
 
 function buttonRow(label, url) {
