@@ -368,7 +368,11 @@ const server = http.createServer(async (req, res) => {
         const raw = await readBody(req);
         if (raw.length > 100000) throw new Error("size");
         const body = JSON.parse(raw.toString("utf8"));
-        const id = urlPath === "/drafts/progress" ? "progress" : crypto.randomBytes(4).toString("hex");
+        const id = urlPath === "/drafts/progress"
+          ? "progress"
+          : /^\/drafts\/[a-f0-9]{8}$/.test(urlPath)
+            ? urlPath.slice("/drafts/".length)
+            : crypto.randomBytes(4).toString("hex");
         const saved = writeProject(who.userId, id, body);
         res.writeHead(saved ? 200 : 400, { "content-type": "application/json" });
         res.end(JSON.stringify(saved || { ok: false }));
