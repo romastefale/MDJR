@@ -178,15 +178,25 @@ function appUrl(draftId) {
   return draftId ? `${base}&draft=${encodeURIComponent(draftId)}` : base;
 }
 
-async function say(chatId, userId, html) {
-  const rich = await api("sendRichMessage", {
+async function say(chatId, html, ephemeralUser) {
+  const body = {
     chat_id: chatId,
-    ephemeral_message_parameters: { receiver_user_id: userId },
     rich_message: { html, skip_entity_detection: true },
-  });
-  if (rich.ok) return;
-  const plain = html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ").trim();
-  await api("sendMessage", { chat_id: chatId, text: plain });
+  };
+  if (ephemeralUser) body.ephemeral_message_parameters = { receiver_user_id: ephemeralUser };
+  const sent = await api("sendRichMessage", body);
+  if (sent.ok || !ephemeralUser) {
+    if (!sent.ok) console.error("sendRichMessage", sent.description || sent);
+    return sent;
+  }
+  delete body.ephemeral_message_parameters;
+  const again = await api("sendRichMessage", body);
+  if (!again.ok) console.error("sendRichMessage", again.description || sent.description || again);
+  return again;
+}
+
+function openLine(label, url) {
+  return `<tg-button type="web_app" style="success" url="${htmlEscape(url)}">${htmlEscape(label)}</tg-button>`;
 }
 
 function readBody(req) {
@@ -248,16 +258,17 @@ async function onMessage(message) {
   const command = text.split(/\s|@/)[0];
   const userId = message.from?.id;
   if (!userId) return;
+  const ephemeral = message.chat?.type === "private" ? undefined : userId;
   if (command === "/start") {
-    await say(message.chat.id, userId, `<p><b>Math DJ</b></p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl())}">Open</tg-button>`);
+    await say(message.chat.id, `<p><b>Math DJ</b> ${openLine("Open", appUrl())}</p>`, ephemeral);
     return;
   }
   if (command !== "/draft") return;
   const drafts = listDrafts(userId);
   const html = drafts.length
-    ? `<p><b>Drafts</b></p>${drafts.map((draft) => `<p><b>${htmlEscape(draft.name)}</b><br/>${htmlEscape(when(draft.updated))}</p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl(draft.id))}">Open</tg-button>`).join("")}`
-    : `<p><b>Drafts</b></p><p>Nothing saved yet.</p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl())}">Open</tg-button>`;
-  await say(message.chat.id, userId, html);
+    ? `<p><b>Drafts</b></p>${drafts.map((draft) => `<p>${openLine(draft.name, appUrl(draft.id))} ${htmlEscape(when(draft.updated))}</p>`).join("")}`
+    : `<p><b>Drafts</b></p><p>Nothing saved yet. ${openLine("Open", appUrl())}</p>`;
+  await say(message.chat.id, html, ephemeral);
 }
 
 async function poll() {
