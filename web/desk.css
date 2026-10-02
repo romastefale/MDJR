@@ -81,7 +81,7 @@ html[data-theme="dark"] body { background: transparent; }
 button, input { font-family: inherit; color: inherit; }
 button { cursor: pointer; }
 .dj-root, .dj { position: relative; z-index: 1; height: 100%; overflow: hidden; background: transparent; }
-.dj { position: relative; display: flex; flex-direction: column; width: 100%; }
+.dj { position: relative; display: flex; flex-direction: column; zoom: calc(10 / 9); width: 90%; height: 90%; max-height: none; }
 
 .site-header {
   position: fixed; z-index: 70; left: 0; right: 0;
