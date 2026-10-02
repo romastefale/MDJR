@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=25`;
+  return `${publicOrigin()}/?v=26`;
 }
 
 async function api(method, body) {
@@ -108,6 +108,8 @@ function projectFrom(body, id) {
     y: String(row?.y || "").slice(0, 500),
     on: Boolean(row?.on),
     color: String(row?.color || "").slice(0, 40),
+    bpm: Math.min(180, Math.max(80, Math.round(Number(row?.bpm) || 120))),
+    vol: Math.min(1, Math.max(0, Number.isFinite(Number(row?.vol)) ? Number(row.vol) : 0.75)),
   })) : [];
   const updated = Date.now();
   return {
@@ -181,7 +183,7 @@ function when(ms) {
 
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=25&draft=${encodeURIComponent(draftId)}` : `${base}/?v=25`;
+  return draftId ? `${base}/?v=26&draft=${encodeURIComponent(draftId)}` : `${base}/?v=26`;
 }
 
 function linkButton(label, url) {
