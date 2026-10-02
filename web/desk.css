@@ -121,7 +121,10 @@ button { cursor: pointer; }
   max-height: min(420px, calc(100svh - 120px)); overflow: auto; padding: 6px; border-radius: 16px;
   background: var(--picker-bg); scrollbar-width: none;
 }
-.sh-picker::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.sh-picker.row-pop {
+  top: auto; left: auto; max-height: none;
+  z-index: 80;
+}
 .menu-scroll { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: none; padding: 6px; }
 .menu-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .menu-list { display: grid; gap: 2px; }
