@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/`;
+  return `${publicOrigin()}/?v=5`;
 }
 
 async function api(method, body) {
@@ -181,7 +181,7 @@ function when(ms) {
 
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?draft=${encodeURIComponent(draftId)}` : `${base}/`;
+  return draftId ? `${base}/?v=5&draft=${encodeURIComponent(draftId)}` : `${base}/?v=5`;
 }
 
 function linkButton(label, url) {
@@ -242,7 +242,10 @@ function serveWeb(res, urlPath, head) {
       res.end(head ? undefined : "not found");
       return;
     }
-    res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
+    res.writeHead(200, {
+      "content-type": TYPES[path.extname(file)] || "application/octet-stream",
+      "cache-control": "no-cache",
+    });
     res.end(head ? undefined : data);
   });
 }
