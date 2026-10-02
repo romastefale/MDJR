@@ -109,10 +109,11 @@ function projectFrom(body, id) {
     on: Boolean(row?.on),
     color: String(row?.color || "").slice(0, 40),
   })) : [];
+  const updated = Date.now();
   return {
     id,
-    name: cleanName(body?.name),
-    updated: Date.now(),
+    name: id === "progress" ? "Progress" : when(updated),
+    updated,
     seconds: Math.min(1200, Math.max(1, Number(body?.seconds) || 60)),
     patch: body?.patch && typeof body.patch === "object" ? body.patch : {},
     rows,
@@ -149,7 +150,7 @@ function listDrafts(userId) {
     .map((name) => {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-        return { id: data.id, name: data.name || "Untitled", updated: data.updated || 0 };
+        return { id: data.id, name: when(data.updated || Date.now()), updated: data.updated || 0 };
       } catch {
         return null;
       }
@@ -169,7 +170,13 @@ function htmlEscape(value) {
 }
 
 function when(ms) {
-  return new Date(ms).toLocaleDateString("en", { month: "short", day: "numeric" });
+  return new Date(ms).toLocaleString("en", {
+    timeZone: "America/Sao_Paulo",
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit",
+  });
 }
 
 function appUrl(draftId) {
@@ -266,10 +273,7 @@ async function onMessage(message) {
   const blocks = drafts.length
     ? [
         { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
-        ...drafts.flatMap((draft) => [
-          { type: "paragraph", text: [{ type: "bold", text: draft.name }, ` ${when(draft.updated)}`] },
-          buttonRow("Open", appUrl(draft.id)),
-        ]),
+        ...drafts.map((draft) => buttonRow(draft.name, appUrl(draft.id))),
       ]
     : [
         { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
