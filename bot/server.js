@@ -46,7 +46,6 @@ async function setup() {
   await api("setMyCommands", {
     commands: [
       { command: "start", description: "Open Math DJ" },
-      { command: "app", description: "Open the app" },
       { command: "draft", description: "Your drafts" },
     ],
   });
@@ -249,7 +248,7 @@ async function onMessage(message) {
   const command = text.split(/\s|@/)[0];
   const userId = message.from?.id;
   if (!userId) return;
-  if (command === "/start" || command === "/app") {
+  if (command === "/start") {
     await say(message.chat.id, userId, `<p><b>Math DJ</b></p><p>y = f(x)</p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl())}">Open</tg-button>`);
     return;
   }
