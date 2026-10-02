@@ -14,8 +14,9 @@
     <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
     <script>
       (function () {
-        var d = document.documentElement;
-        var t = matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        var d = document.documentElement, picked;
+        try { picked = sessionStorage.getItem("mdjr-theme"); } catch (e) {}
+        var t = picked === "light" || picked === "dark" ? picked : (matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light");
         d.setAttribute("data-theme", t);
         d.style.colorScheme = t;
         var c = t === "dark" ? "#141416" : "#f4f3f1";
