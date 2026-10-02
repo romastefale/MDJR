@@ -116,8 +116,8 @@ button { cursor: pointer; }
 .sh-pill[aria-expanded="true"]:not(.more),
 .sh-pill[aria-pressed="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
 .sh-picker {
-  position: absolute; z-index: 2; top: calc(100% + 8px); left: 0; width: max-content; max-width: 100%;
-  max-height: min(420px, calc(100svh - 120px)); overflow: auto; padding: 6px; border-radius: 22px;
+  position: absolute; z-index: 3; top: 8px; left: 8px; width: max-content; max-width: 100%;
+  max-height: min(420px, calc(100svh - 120px)); overflow: auto; padding: 6px; border-radius: 16px;
   background: var(--picker-bg); scrollbar-width: none;
 }
 .sh-picker::-webkit-scrollbar { display: none; width: 0; height: 0; }
