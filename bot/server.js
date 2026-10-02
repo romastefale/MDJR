@@ -1,8 +1,22 @@
+import crypto from "node:crypto";
 import http from "node:http";
 
 const TOKEN = process.env.BOT_TOKEN || "";
 const WEBAPP = (process.env.WEBAPP_URL || "https://romastefale.github.io/MDJR/").replace(/\/$/, "") + "/";
 const PORT = Number(process.env.PORT || 3000);
+const MAX_SONG = 22 * 1024 * 1024;
+const ORIGIN = "https://romastefale.github.io";
+
+function publicOrigin() {
+  if (process.env.PUBLIC_URL) return process.env.PUBLIC_URL.replace(/\/$/, "");
+  if (process.env.RAILWAY_PUBLIC_DOMAIN) return `https://${process.env.RAILWAY_PUBLIC_DOMAIN}`;
+  return "";
+}
+
+function launchUrl() {
+  const origin = publicOrigin();
+  return origin ? `${WEBAPP}?api=${encodeURIComponent(origin)}` : WEBAPP;
+}
 
 async function api(method, body) {
   const res = await fetch(`https://api.telegram.org/bot${TOKEN}/${method}`, {
@@ -16,20 +30,16 @@ async function api(method, body) {
 }
 
 function openKeyboard() {
+  const url = launchUrl();
   return {
-    keyboard: [[{ text: "Abrir Math DJ", web_app: { url: WEBAPP } }]],
+    keyboard: [[{ text: "Abrir Math DJ", web_app: { url } }]],
     resize_keyboard: true,
     is_persistent: true,
   };
 }
 
-function inlineKeyboard() {
-  return {
-    inline_keyboard: [[{ text: "Abrir o sintetizador", web_app: { url: WEBAPP } }]],
-  };
-}
-
 async function setup() {
+  const url = launchUrl();
   await api("setMyCommands", {
     commands: [
       { command: "start", description: "Abrir o Math DJ" },
@@ -37,35 +47,68 @@ async function setup() {
     ],
   });
   await api("setChatMenuButton", {
-    menu_button: {
-      type: "web_app",
-      text: "Math DJ",
-      web_app: { url: WEBAPP },
-    },
+    menu_button: { type: "web_app", text: "Math DJ", web_app: { url } },
   });
-  await api("setMyShortDescription", {
-    short_description: "Sintetizador matemático em Mini App",
+  await api("setMyShortDescription", { short_description: "y = f(x). Mini App." });
+  console.log("mini app", url);
+}
+
+function chatFromInit(initData) {
+  const params = new URLSearchParams(initData);
+  const hash = params.get("hash") || "";
+  params.delete("hash");
+  const check = [...params.entries()]
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([key, value]) => `${key}=${value}`)
+    .join("\n");
+  const secret = crypto.createHmac("sha256", "WebAppData").update(TOKEN).digest();
+  const calc = crypto.createHmac("sha256", secret).update(check).digest("hex");
+  const a = Buffer.from(calc);
+  const b = Buffer.from(hash);
+  if (a.length !== b.length || !crypto.timingSafeEqual(a, b)) return null;
+  const authDate = Number(params.get("auth_date") || 0);
+  if (!authDate || Math.abs(Date.now() / 1000 - authDate) > 86400) return null;
+  try {
+    if (params.get("chat")) return JSON.parse(params.get("chat")).id;
+    if (params.get("user")) return JSON.parse(params.get("user")).id;
+  } catch {
+    return null;
+  }
+  return null;
+}
+
+function readBody(req) {
+  return new Promise((resolve, reject) => {
+    const chunks = [];
+    let size = 0;
+    req.on("data", (chunk) => {
+      size += chunk.length;
+      if (size > MAX_SONG) {
+        reject(new Error("size"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
+    });
+    req.on("end", () => resolve(Buffer.concat(chunks)));
+    req.on("error", reject);
   });
-  await api("setMyDescription", {
-    description:
-      "Math DJ Robot toca fórmulas. Toque em Abrir Math DJ ou no botão do menu para entrar no sintetizador.",
-  });
-  console.log("menu do mini app apontando para", WEBAPP);
+}
+
+function cors(res) {
+  res.setHeader("access-control-allow-origin", ORIGIN);
+  res.setHeader("access-control-allow-headers", "content-type, x-telegram-init-data, x-filename");
+  res.setHeader("access-control-allow-methods", "POST, OPTIONS");
+  res.setHeader("vary", "origin");
 }
 
 async function onMessage(message) {
   const text = message.text || "";
   if (!text.startsWith("/start") && !text.startsWith("/app")) return;
-  const name = message.from?.first_name || "";
   await api("sendMessage", {
     chat_id: message.chat.id,
-    text: `${name ? `Oi, ${name}. ` : ""}Math DJ Robot está pronto.\nAbra o sintetizador pelo botão abaixo. Dá para exportar MP3 e gerar uma fórmula nova.`,
+    text: "Math DJ",
     reply_markup: openKeyboard(),
-  });
-  await api("sendMessage", {
-    chat_id: message.chat.id,
-    text: "Se o teclado não aparecer, use este botão:",
-    reply_markup: inlineKeyboard(),
   });
 }
 
@@ -73,11 +116,7 @@ async function poll() {
   let offset = 0;
   for (;;) {
     try {
-      const data = await api("getUpdates", {
-        offset,
-        timeout: 25,
-        allowed_updates: ["message"],
-      });
+      const data = await api("getUpdates", { offset, timeout: 25, allowed_updates: ["message"] });
       for (const update of data.result || []) {
         offset = update.update_id + 1;
         if (update.message) await onMessage(update.message);
@@ -89,11 +128,48 @@ async function poll() {
   }
 }
 
-const server = http.createServer((req, res) => {
+const server = http.createServer(async (req, res) => {
   const path = (req.url || "/").split("?")[0];
+  if (req.method === "OPTIONS") {
+    cors(res);
+    res.writeHead(204);
+    res.end();
+    return;
+  }
   if (path === "/" || path === "/health") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
-    res.end(JSON.stringify({ ok: true, service: "mdjr-bot", bot: Boolean(TOKEN), webapp: WEBAPP }));
+    res.end(JSON.stringify({ ok: true, service: "mdjr-bot", bot: Boolean(TOKEN), webapp: launchUrl() }));
+    return;
+  }
+  if (path === "/song" && req.method === "POST") {
+    cors(res);
+    if (!TOKEN) {
+      res.writeHead(503, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false }));
+      return;
+    }
+    try {
+      const chatId = chatFromInit(req.headers["x-telegram-init-data"] || "");
+      if (!chatId) {
+        res.writeHead(401, { "content-type": "application/json" });
+        res.end(JSON.stringify({ ok: false }));
+        return;
+      }
+      const body = await readBody(req);
+      const rawName = String(req.headers["x-filename"] || "math-dj.mp3");
+      const filename = rawName.replace(/[^a-zA-Z0-9._-]/g, "").slice(0, 80) || "math-dj.mp3";
+      const form = new FormData();
+      form.append("chat_id", String(chatId));
+      form.append("document", new Blob([body], { type: "audio/mpeg" }), filename.endsWith(".mp3") ? filename : `${filename}.mp3`);
+      const sent = await fetch(`https://api.telegram.org/bot${TOKEN}/sendDocument`, { method: "POST", body: form });
+      const data = await sent.json().catch(() => ({ ok: false }));
+      res.writeHead(data.ok ? 200 : 502, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: Boolean(data.ok) }));
+    } catch (err) {
+      console.error("song", err instanceof Error ? err.message : err);
+      res.writeHead(400, { "content-type": "application/json" });
+      res.end(JSON.stringify({ ok: false }));
+    }
     return;
   }
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
