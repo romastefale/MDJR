@@ -249,7 +249,7 @@ async function onMessage(message) {
   const userId = message.from?.id;
   if (!userId) return;
   if (command === "/start") {
-    await say(message.chat.id, userId, `<p><b>Math DJ</b></p><p>y = f(x)</p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl())}">Open</tg-button>`);
+    await say(message.chat.id, userId, `<p><b>Math DJ</b></p><tg-button type="web_app" style="success" url="${htmlEscape(appUrl())}">Open</tg-button>`);
     return;
   }
   if (command !== "/draft") return;
