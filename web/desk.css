@@ -113,7 +113,7 @@ button { cursor: pointer; }
 .sh-pill .theme-icon circle { fill: none; stroke: currentColor; }
 .sh-pill .theme-icon.moon path { fill: currentColor; stroke: none; }
 .sh-pill b { font-size: 11px; font-weight: 700; }
-.sh-pill[aria-expanded="true"]:not(.more),
+.sh-pill[aria-expanded="true"],
 .sh-pill[aria-pressed="true"] { background: var(--bar-text); color: var(--bar-solid); border-color: transparent; }
 .sh-picker {
   position: absolute; z-index: 3; top: 8px; left: 8px; width: max-content; max-width: 100%;
@@ -121,6 +121,8 @@ button { cursor: pointer; }
   background: var(--picker-bg); scrollbar-width: none;
 }
 .sh-picker::-webkit-scrollbar { display: none; width: 0; height: 0; }
+.menu-scroll { overflow-y: auto; overscroll-behavior: contain; touch-action: pan-y; scrollbar-width: none; padding: 6px; }
+.menu-scroll::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .menu-list { display: grid; gap: 2px; }
 .menu-list > button {
   display: flex; align-items: center; justify-content: space-between; gap: 14px; min-height: 44px; padding: 0 14px 0 16px;
@@ -167,7 +169,7 @@ button, .sh-pill, .menu-list > button { -webkit-tap-highlight-color: transparent
 .row-menu::-webkit-scrollbar { display: none; width: 0; height: 0; }
 .row-menu.up { top: auto; bottom: calc(100% + 8px); }
 .row-menu.down { bottom: auto; top: calc(100% + 8px); }
-.bpm { display: grid; gap: 8px; padding: 10px 14px 12px; }
+.bpm { display: grid; gap: 8px; padding: 10px 14px 12px; min-width: 168px; }
 .bpm b { display: flex; justify-content: space-between; font-size: 13px; font-weight: 600; }
 .bpm b span { color: var(--bar-sub); font-variant-numeric: tabular-nums; }
 .bpm-slider { position: relative; display: block; height: 28px; }
