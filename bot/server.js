@@ -107,22 +107,22 @@ const TYPES = {
   ".woff2": "font/woff2",
 };
 
-function serveWeb(res, urlPath) {
-  const rel = urlPath === "/" ? "/index.html" : urlPath;
-  const file = path.normalize(path.join(WEB_DIR, rel));
-  if (!file.startsWith(WEB_DIR + path.sep) && file !== path.join(WEB_DIR, "index.html")) {
+function serveWeb(res, urlPath, head) {
+  const rel = (urlPath === "/" ? "index.html" : urlPath).replace(/^\/+/, "");
+  const file = path.resolve(WEB_DIR, rel);
+  if (file !== WEB_DIR && !file.startsWith(WEB_DIR + path.sep)) {
     res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-    res.end("not found");
+    res.end(head ? undefined : "not found");
     return;
   }
   fs.readFile(file, (err, data) => {
     if (err) {
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
-      res.end("not found");
+      res.end(head ? undefined : "not found");
       return;
     }
     res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
-    res.end(data);
+    res.end(head ? undefined : data);
   });
 }
 
@@ -203,8 +203,8 @@ const server = http.createServer(async (req, res) => {
     }
     return;
   }
-  if (req.method === "GET") {
-    serveWeb(res, path);
+  if (req.method === "GET" || req.method === "HEAD") {
+    serveWeb(res, path, req.method === "HEAD");
     return;
   }
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });

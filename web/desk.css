@@ -63,7 +63,7 @@
 
 
 * { box-sizing: border-box; }
-html { background-color: var(--page-edge); height: 100%; overflow: hidden; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
+html { background-color: var(--page-edge); zoom: 0.9; width: 111.111%; height: 111.111svh; overflow: hidden; touch-action: manipulation; -webkit-text-size-adjust: 100%; }
 html::before {
   content: ""; position: fixed; z-index: 0; pointer-events: none; inset: 0;
   background-color: var(--page-edge);
@@ -78,8 +78,8 @@ body {
 }
 button, input { font-family: inherit; color: inherit; }
 button { cursor: pointer; }
-.dj-root, .dj { position: relative; z-index: 1; height: 100%; max-height: 100svh; overflow: hidden; background: transparent; }
-.dj { position: relative; display: flex; flex-direction: column; zoom: 0.9; width: 111.111%; height: 111.111%; max-height: none; }
+.dj-root, .dj { position: relative; z-index: 1; height: 100%; overflow: hidden; background: transparent; }
+.dj { position: relative; display: flex; flex-direction: column; width: 100%; }
 
 .site-header {
   position: fixed; z-index: 70; left: 0; right: 0;
