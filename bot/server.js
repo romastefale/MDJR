@@ -1,5 +1,8 @@
 import crypto from "node:crypto";
+import fs from "node:fs";
 import http from "node:http";
+import path from "node:path";
+import { fileURLToPath } from "node:url";
 
 const TOKEN = process.env.BOT_TOKEN || "";
 const WEBAPP = (process.env.WEBAPP_URL || "https://romastefale.github.io/MDJR/").replace(/\/$/, "") + "/";
@@ -95,6 +98,34 @@ function readBody(req) {
   });
 }
 
+const WEB_DIR = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "../web");
+const TYPES = {
+  ".html": "text/html; charset=utf-8",
+  ".js": "text/javascript; charset=utf-8",
+  ".css": "text/css; charset=utf-8",
+  ".svg": "image/svg+xml",
+  ".woff2": "font/woff2",
+};
+
+function serveWeb(res, urlPath) {
+  const rel = urlPath === "/" ? "/index.html" : urlPath;
+  const file = path.normalize(path.join(WEB_DIR, rel));
+  if (!file.startsWith(WEB_DIR + path.sep) && file !== path.join(WEB_DIR, "index.html")) {
+    res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+    res.end("not found");
+    return;
+  }
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
+      res.end("not found");
+      return;
+    }
+    res.writeHead(200, { "content-type": TYPES[path.extname(file)] || "application/octet-stream" });
+    res.end(data);
+  });
+}
+
 function cors(res) {
   res.setHeader("access-control-allow-origin", ORIGIN);
   res.setHeader("access-control-allow-headers", "content-type, x-telegram-init-data, x-filename");
@@ -136,7 +167,7 @@ const server = http.createServer(async (req, res) => {
     res.end();
     return;
   }
-  if (path === "/" || path === "/health") {
+  if (path === "/health") {
     res.writeHead(200, { "content-type": "application/json; charset=utf-8" });
     res.end(JSON.stringify({ ok: true, service: "mdjr-bot", bot: Boolean(TOKEN), webapp: launchUrl() }));
     return;
@@ -170,6 +201,10 @@ const server = http.createServer(async (req, res) => {
       res.writeHead(400, { "content-type": "application/json" });
       res.end(JSON.stringify({ ok: false }));
     }
+    return;
+  }
+  if (req.method === "GET") {
+    serveWeb(res, path);
     return;
   }
   res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
