@@ -171,7 +171,7 @@ button { cursor: pointer; }
 .fn-row textarea {
   flex: 1; min-width: 0; height: 40px; margin: 0; padding: 0; border: 0; resize: none; background: transparent; color: inherit;
   appearance: none; -webkit-appearance: none; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
-  font: 10.5px/1.25 "Courier New", Courier, monospace; letter-spacing: -0.5px;
+  font: 8.5px/1.25 "Courier New", Courier, monospace; letter-spacing: -0.4px;
 }
 .fn-row textarea:focus { outline: none; box-shadow: none; }
 button, .sh-pill, .menu-list > button { -webkit-tap-highlight-color: transparent; }
