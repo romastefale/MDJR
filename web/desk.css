@@ -83,7 +83,8 @@ button { cursor: pointer; }
 .dj-root, .dj { position: relative; z-index: 1; height: 100%; overflow: hidden; background: transparent; }
 .dj {
   position: relative; display: flex; flex-direction: column;
-  width: 90%; height: 90%;
+  width: 90%; height: calc(var(--vvh, 100dvh) * 0.9);
+  margin-top: calc(var(--vvt, 0px) * 0.9);
   transform: scale(calc(10 / 9));
   transform-origin: 0 0;
 }
@@ -139,6 +140,8 @@ button { cursor: pointer; }
   flex: 1 1 auto; min-height: 88px; display: flex;
   margin: calc(11px + env(safe-area-inset-top) + 47px + 9px) 11px 7px;
 }
+.plane[hidden] { display: none; }
+.dj[data-edit="1"] .expr-dock { margin-top: calc(11px + env(safe-area-inset-top) + 47px + 9px); }
 .plane-card { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; border-radius: 23px; overflow: hidden; display: flex; padding: 8px; }
 .plane canvas { flex: 1 1 auto; min-width: 0; min-height: 0; width: 100%; display: block; }
 .mark { position: absolute; top: 8px; right: 10px; font-size: 12px; }
