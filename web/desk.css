@@ -159,6 +159,7 @@ button, .sh-pill, .menu-list > button { -webkit-tap-highlight-color: transparent
 .fn-row i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--danger); }
 .play-in { position: absolute; left: var(--cap); top: 50%; transform: translate(-50%, -50%); z-index: 5; }
 .more { position: absolute; right: var(--cap); top: 50%; transform: translate(50%, -50%); z-index: 5; }
+.more:disabled { opacity: 0.35; }
 .row-menu {
   left: auto; right: 8px; width: 228px; max-width: calc(100vw - 36px); z-index: 7; overflow: auto; scrollbar-width: none;
 }
