@@ -133,10 +133,11 @@ button { cursor: pointer; }
 .fn-row span { font-weight: 600; font-size: 13px; }
 .fn-row textarea {
   flex: 1; min-width: 0; margin: 0; padding: 0; border: 0; resize: none; background: transparent; color: inherit;
-  field-sizing: content; max-height: 2.6em; overflow: auto; white-space: pre-wrap; overflow-wrap: anywhere;
+  appearance: none; -webkit-appearance: none; field-sizing: content; overflow: hidden; white-space: pre-wrap; overflow-wrap: anywhere;
   font: 13px/1.3 ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
 }
-.fn-row textarea:focus, .sh-pill:focus-visible, .menu-list > button:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--bar-sub); }
+.fn-row textarea:focus { outline: none; box-shadow: none; }
+.sh-pill:focus-visible, .menu-list > button:focus-visible { outline: none; box-shadow: inset 0 0 0 1.5px var(--bar-sub); }
 .sh-pill:focus-visible { border-radius: 999px; }
 .fn-row i { font-style: normal; font-size: 11px; font-weight: 700; color: var(--danger); }
 .fn-row .kill { position: absolute; right: var(--cap); top: 50%; transform: translate(50%, -50%); }
