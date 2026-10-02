@@ -178,25 +178,24 @@ function appUrl(draftId) {
   return draftId ? `${base}&draft=${encodeURIComponent(draftId)}` : base;
 }
 
-async function say(chatId, html, ephemeralUser) {
-  const body = {
-    chat_id: chatId,
-    rich_message: { html, skip_entity_detection: true },
+function linkButton(label, url) {
+  return {
+    type: "button",
+    button: {
+      text: label,
+      style: "success",
+      url,
+    },
   };
-  if (ephemeralUser) body.ephemeral_message_parameters = { receiver_user_id: ephemeralUser };
-  const sent = await api("sendRichMessage", body);
-  if (sent.ok || !ephemeralUser) {
-    if (!sent.ok) console.error("sendRichMessage", sent.description || sent);
-    return sent;
-  }
-  delete body.ephemeral_message_parameters;
-  const again = await api("sendRichMessage", body);
-  if (!again.ok) console.error("sendRichMessage", again.description || sent.description || again);
-  return again;
 }
 
-function openLine(label, url) {
-  return `<tg-button type="web_app" style="success" url="${htmlEscape(url)}">${htmlEscape(label)}</tg-button>`;
+async function say(chatId, blocks) {
+  const sent = await api("sendRichMessage", {
+    chat_id: chatId,
+    rich_message: { blocks },
+  });
+  if (!sent.ok) console.error("sendRichMessage", sent.description || sent);
+  return sent;
 }
 
 function readBody(req) {
@@ -258,17 +257,27 @@ async function onMessage(message) {
   const command = text.split(/\s|@/)[0];
   const userId = message.from?.id;
   if (!userId) return;
-  const ephemeral = message.chat?.type === "private" ? undefined : userId;
   if (command === "/start") {
-    await say(message.chat.id, `<p><b>Math DJ</b> ${openLine("Open", appUrl())}</p>`, ephemeral);
+    await say(message.chat.id, [
+      { type: "paragraph", text: [{ type: "bold", text: "Math DJ" }, " ", linkButton("Open", appUrl())] },
+    ]);
     return;
   }
   if (command !== "/draft") return;
   const drafts = listDrafts(userId);
-  const html = drafts.length
-    ? `<p><b>Drafts</b></p>${drafts.map((draft) => `<p>${openLine(draft.name, appUrl(draft.id))} ${htmlEscape(when(draft.updated))}</p>`).join("")}`
-    : `<p><b>Drafts</b></p><p>Nothing saved yet. ${openLine("Open", appUrl())}</p>`;
-  await say(message.chat.id, html, ephemeral);
+  const blocks = drafts.length
+    ? [
+        { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
+        ...drafts.map((draft) => ({
+          type: "paragraph",
+          text: [linkButton(draft.name, appUrl(draft.id)), ` ${when(draft.updated)}`],
+        })),
+      ]
+    : [
+        { type: "paragraph", text: [{ type: "bold", text: "Drafts" }] },
+        { type: "paragraph", text: ["Nothing saved yet. ", linkButton("Open", appUrl())] },
+      ];
+  await say(message.chat.id, blocks);
 }
 
 async function poll() {
