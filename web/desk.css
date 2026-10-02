@@ -77,6 +77,7 @@ body {
   background: transparent; font-family: system-ui, -apple-system, "Helvetica Neue", Arial, sans-serif;
   -webkit-font-smoothing: antialiased; touch-action: manipulation;
 }
+html[data-theme="dark"] body { background: transparent; }
 button, input { font-family: inherit; color: inherit; }
 button { cursor: pointer; }
 .dj-root, .dj { position: relative; z-index: 1; height: 100%; overflow: hidden; background: transparent; }
