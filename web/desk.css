@@ -132,6 +132,7 @@ button { cursor: pointer; }
 .menu-list.samples > button[data-on="1"] { background: transparent; font-weight: 500; box-shadow: none; }
 .menu-list > button:disabled { opacity: 0.35; }
 .menu-list > button span { color: var(--bar-sub); }
+.menu-line { display: block; height: 0.5px; margin: 4px 10px; background: var(--bar-edge); }
 .menu-list.samples > button { min-height: 34px; padding: 0 12px 0 14px; border-radius: 12px; font-size: 13px; }
 
 .plane {
