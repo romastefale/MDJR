@@ -171,13 +171,13 @@ button, .sh-pill, .menu-list > button { -webkit-tap-highlight-color: transparent
 .bpm-slider { position: relative; display: block; height: 28px; }
 .bpm-track, .bpm-fill { position: absolute; top: 11px; height: 6px; border-radius: 999px; }
 .bpm-track { left: 0; right: 0; background: var(--track); }
-.bpm-fill { left: 0; background: #0a84ff; }
+.bpm-fill { display: none; }
 .bpm-thumb {
   position: absolute; top: 3px; width: 44px; height: 22px; margin-left: -22px; border-radius: 999px;
   background: var(--thumb); box-shadow: 0 1.33px 5.33px rgba(46, 15, 15, 0.16); pointer-events: none;
 }
 :root[data-theme="dark"] .bpm-thumb { box-shadow: 0 1.33px 5.33px rgba(0, 0, 0, 0.5); }
-.bpm-slider input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; }
+.bpm-slider input { position: absolute; inset: 0; width: 100%; height: 100%; margin: 0; opacity: 0; cursor: pointer; outline: none; -webkit-tap-highlight-color: transparent; accent-color: transparent; }
 @media (prefers-reduced-transparency: reduce) {
   .tint-bar { background: #eef0f5; }
   :root[data-theme="dark"] .tint-bar { background: #060607; }
