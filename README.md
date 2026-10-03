@@ -1,13 +1,36 @@
+<p align="center">
+  <img src="header.png" alt="Math DJ Robot" width="100%">
+</p>
+
 # Math DJ Robot
 
-`y = f(x)`. Dez fórmulas na mesma música, até 20:00. MP3 no navegador; no Telegram, o bot manda o arquivo no chat.
+**Uma fórmula vira música.**
 
-O site não sai da raiz. A Action [Deploy GitHub Pages](.github/workflows/pages.yml) publica só `web/`.
+Monte uma faixa escrevendo matemática. Cada linha é uma fórmula `y = f(x)`: ela toca e, ao mesmo tempo, aparece desenhada no gráfico. Até cinco fórmulas tocam juntas e formam a música.
 
-https://romastefale.github.io/MDJR/
+**[Abrir o Math DJ Robot →](https://romastefale.github.io/MDJR/)**
 
-## Railway
+## O que você pode fazer
 
-`bot/server.js`. Variável obrigatória: `BOT_TOKEN`. Opcional: `WEBAPP_URL` (padrão o Pages) e `PUBLIC_URL` (padrão `https://mdjr.up.railway.app`). O Mini App envia o MP3 para `POST /song`. O bot valida o `initData` e manda o anexo no chat.
+- **Tocar e editar** cinco fórmulas ao mesmo tempo e ver cada uma desenhada no gráfico
+- **Sortear uma voz nova** para qualquer linha com *Generate*: são cinco cartões, de bateria e de baixo, com 100 vozes cada
+- **Ajustar o BPM** (de 80 a 180) e o **volume** de cada linha
+- **Escolher a duração:** 0:30, 1:00, 2:00, 5:00, 10:00 ou 20:00
+- **Baixar em MP3:** no navegador sai como arquivo, e no Telegram o bot envia o arquivo no chat
+- **Alternar** entre tema claro e escuro, ou **silenciar** tudo pelo menu
 
-Monte o volume `mdjr-volume` em `/mdjr-volume`. O progresso e os rascunhos ficam em `users/<id>/`. `GET /drafts` lista nome e data. O comando `/draft` abre a mesma lista.
+## No Telegram
+
+Abra o Math DJ pelo bot e o app retoma de onde você parou. Você pode guardar até **5 rascunhos**, e o comando `/draft` mostra a lista.
+
+## Para publicar
+
+O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API ficam em `bot/server.js` (Node 20 ou mais novo), pensados para o Railway.
+
+- `BOT_TOKEN` (obrigatória): o token do bot
+- `PUBLIC_URL` (opcional): o endereço público do servidor, por padrão `https://mdjr.up.railway.app`
+- Monte um volume em `/mdjr-volume` para guardar o progresso e os rascunhos
+
+## Licença
+
+MIT. Veja o arquivo [LICENSE](LICENSE).
