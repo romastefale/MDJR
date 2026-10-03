@@ -39,7 +39,10 @@ O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API 
 
 ### Tamanho de um rascunho
 
-O app manda para `/drafts` o nome (a primeira fórmula, até 32 caracteres), as 5 linhas (`id`, `y`, `on`, `color`, `bpm`, `vol`), a duração e os botões de som. O servidor guarda até 500 caracteres de cada fórmula. Com tudo no tamanho máximo, um rascunho tem cerca de 3,5 KB com fórmulas em ASCII e 8,6 KB no pior caso, quando todo caractere é um símbolo de 3 bytes em UTF-8. Por isso o limite do corpo é de **10 KB**, uns 19% acima desse pior caso. Acima disso, a resposta é 413.
+São dois números diferentes.
+
+- **O que fica guardado.** O app manda para `/drafts` o nome (a primeira fórmula), as 5 linhas (`id`, `y`, `on`, `color`, `bpm`, `vol`), a duração e os botões de som. O servidor normaliza tudo antes de gravar: nome com até 32 caracteres, 5 linhas, fórmula com até 500 caracteres, cor com até 40, e dos botões de som só os campos que o app usa, também com limite. Com tudo no máximo, o arquivo tem cerca de 3,5 KB em ASCII, 11 KB se todo caractere for um símbolo de 3 bytes em UTF-8, e no máximo absoluto 21 KB, com todo caractere escapado como `\uXXXX`.
+- **O que o servidor aceita receber.** O app não limita o tamanho da fórmula, então uma fórmula maior continua sendo aceita e cortada em 500 caracteres, como antes. O corpo pode ter até **128 KB**, acima dos 100 KB aceitos antes deste PR, para que nada que salvava antes passe a falhar. Acima disso, a resposta é 413.
 
 No Railway basta o `BOT_TOKEN` e o volume. Não é preciso criar outra variável.
 

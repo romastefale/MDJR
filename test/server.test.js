@@ -640,32 +640,74 @@ describe("Mini App API", () => {
     ctx.fake.assertConforms();
   });
 
-  // Decisão do Pi (2026-10-03): o limite de tamanho acompanha o tamanho real de um rascunho. The largest
-  // draft the app can send (what web/app.js POSTs: name, 5 rows of { id, y, on, color, bpm, vol }, seconds,
-  // the knob object; 500-character formulas, every character a 3-byte UTF-8 symbol, every number at its
-  // longest) is accepted; bodies far beyond any draft are refused, declared or chunked.
-  test("/drafts accepts the largest real draft and refuses bodies far beyond it", async () => {
-    const init = initFor({ id: 42 });
-    const F = -0.12345678901234568;
-    const symbol = "\u2212"; // "−", 3 bytes in UTF-8
-    const largest = {
-      name: symbol.repeat(32),
-      rows: Array.from({ length: 5 }, () => ({ id: Number.MAX_SAFE_INTEGER, y: symbol.repeat(500), on: false, color: "#bf5af2", bpm: 180, vol: F })),
-      seconds: 1200,
-      patch: { mode: "custom", presetId: "percussion_kick", formula: "sin(2*PI*(220*y)*t)*exp(-6*z*((t*(bpm/60)*x)%1))", engine: "raw", x: F, y: F, z: F, w: F, a: F, b: F, g: F, d: F, bpm: 180, vol: F, lpf: 16000, res: F, pan: F, seconds: 1200, muted: true },
-    };
-    const saved = await fetch(`${ctx.base}/drafts`, json(init, largest));
-    assert.equal(saved.status, 200);
-    const { id } = await saved.json();
-    const back = await (await fetch(`${ctx.base}/drafts/${id}`, { headers: { "x-telegram-init-data": init } })).json();
-    assert.equal(back.rows.length, 5);
-    assert.equal(back.rows[0].y, symbol.repeat(500));
+  // What web/app.js POSTs to /drafts (and /drafts/progress): { name, rows, seconds, patch }, rows of
+  // { id, y, on, color, bpm, vol } and the app's knob defaults as patch. The app does not cap formulas.
+  const APP_PATCH = { mode: "custom", presetId: "percussion_kick", formula: "sin(2*PI*(220*y)*t)*exp(-6*z*((t*(bpm/60)*x)%1))", engine: "raw", x: 1, y: 1, z: 1, w: 1, a: 0, b: 0, g: 0, d: 1, bpm: 120, vol: 0.75, lpf: 16000, res: 0.7, pan: 0, seconds: 8, muted: false };
+  const appDraft = (formula) => ({
+    name: formula.slice(0, 32),
+    rows: ["#ff3b30", "#ff9f0a", "#30d158", "#0a84ff", "#bf5af2"].map((color, i) => ({ id: i + 2, y: i === 0 ? formula : "sin(t)", on: true, color, bpm: 120, vol: 0.75 })),
+    seconds: 60,
+    patch: APP_PATCH,
+  });
+  const read = async (init, id) => {
+    const res = await fetch(`${ctx.base}/drafts/${id}`, { headers: { "x-telegram-init-data": init } });
+    return { status: res.status, text: await res.text() };
+  };
 
-    const tooBig = Buffer.byteLength(JSON.stringify(largest)) * 3;
-    const big = await fetch(`${ctx.base}/drafts/progress`, json(init, { ...largest, name: "x".repeat(tooBig) }));
-    assert.equal(big.status, 413);
-    const chunked = await rawRequest(ctx.base, { method: "POST", path: "/drafts/progress", headers: { "x-telegram-init-data": init, "transfer-encoding": "chunked" }, chunks: Array(6).fill("x".repeat(Math.ceil(tooBig / 6))), body: "" });
+  // Decisão do Pi (2026-10-03): sem regressões — o app não limita a fórmula, então uma fórmula longa é
+  // aceita e guardada cortada em 500 caracteres, como antes deste PR
+  test("a draft with a 5,000-character formula is accepted and stored trimmed to 500", async () => {
+    const init = initFor({ id: 42 });
+    const formula = "sin(t)+".repeat(715).slice(0, 5000);
+    for (const url of ["/drafts", "/drafts/progress"]) {
+      const res = await fetch(`${ctx.base}${url}`, json(init, appDraft(formula)));
+      assert.equal(res.status, 200, url);
+      const id = url === "/drafts" ? (await res.json()).id : "progress";
+      const stored = JSON.parse((await read(init, id)).text);
+      assert.equal(stored.rows[0].y, formula.slice(0, 500));
+      assert.equal(stored.rows[1].y, "sin(t)");
+      assert.deepEqual(stored.patch, APP_PATCH, "the knob settings come back as the app sent them");
+    }
+  });
+
+  // Decisão do Pi (2026-10-03): sem regressões — a body just under the 100 KB the server accepted
+  // before this PR still saves; bodies over the 128 KB request cap are refused, declared or chunked
+  test("/drafts still accepts bodies just under the old 100 KB limit and refuses bodies over 128 KB", async () => {
+    const init = initFor({ id: 42 });
+    const under = appDraft("x".repeat(99_000));
+    assert.ok(Buffer.byteLength(JSON.stringify(under)) < 100_000);
+    assert.equal((await fetch(`${ctx.base}/drafts/progress`, json(init, under))).status, 200);
+    const over = appDraft("x".repeat(128 * 1024));
+    assert.equal((await fetch(`${ctx.base}/drafts/progress`, json(init, over))).status, 413);
+    const chunked = await rawRequest(ctx.base, { method: "POST", path: "/drafts/progress", headers: { "x-telegram-init-data": init, "transfer-encoding": "chunked" }, chunks: Array(14).fill("x".repeat(10_000)), body: "" });
     assert.equal(chunked.statusCode, 413);
+  });
+
+  // Decisão do Pi (2026-10-03): o que fica guardado tem tamanho limitado pela normalização do servidor
+  // (nome ≤ 32, 5 linhas, fórmula ≤ 500, cor ≤ 40, só os campos de som que o app usa). Worst case:
+  // every field overflowing, every character escaped as \uXXXX (6 bytes), every number at its longest
+  // text form — the stored draft stays within the documented 21 KB.
+  test("a stored draft never exceeds the 21 KB stored maximum, whatever is sent", async () => {
+    const init = initFor({ id: 42 });
+    const huge = -1.7976931348623157e308;
+    for (const ch of ["\u0001", "\ud800", "\u2212", "x"]) {
+      const patch = { ...APP_PATCH, mode: ch.repeat(300), presetId: ch.repeat(300), engine: ch.repeat(300), formula: ch.repeat(1500), extra: "z".repeat(5000), nested: { deep: "z".repeat(5000) } };
+      for (const key of ["x", "y", "z", "w", "a", "b", "g", "d", "bpm", "vol", "lpf", "res", "pan", "seconds"]) patch[key] = huge;
+      const body = {
+        name: ch.repeat(300),
+        seconds: 123.45678901234568,
+        patch,
+        rows: Array.from({ length: 7 }, () => ({ id: 1, y: ch.repeat(1500), on: true, color: ch.repeat(300), bpm: 1e308, vol: 1.2345678901234567e-300, junk: "z".repeat(2000) })),
+      };
+      assert.ok(Buffer.byteLength(JSON.stringify(body)) < 128 * 1024);
+      const res = await fetch(`${ctx.base}/drafts`, json(init, body));
+      assert.equal(res.status, 200);
+      const { text } = await read(init, (await res.json()).id);
+      assert.ok(Buffer.byteLength(text) <= 21 * 1024, `stored ${Buffer.byteLength(text)} bytes with "${ch}"`);
+      const stored = JSON.parse(text);
+      assert.equal(stored.rows.length, 5);
+      assert.deepEqual(Object.keys(stored.patch).sort(), [...Object.keys(APP_PATCH)].sort());
+    }
   });
 
   // https://core.telegram.org/bots/api#sendaudio (multipart audio, title, performer, duration "in

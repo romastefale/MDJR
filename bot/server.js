@@ -8,21 +8,31 @@ import { createLogger } from "./log.js";
 import { LANGS, pickLang, texts } from "./i18n.js";
 
 const MAX_SONG = 22 * 1024 * 1024;
-// Drafts (Decisão do Pi, 2026-10-03): up to 8 per user, and a body limit sized to a real draft.
+// Drafts (Decisão do Pi, 2026-10-03): up to 8 per user, with sizes that follow a real draft.
 // web/app.js POSTs { name, rows, seconds, patch } to /drafts:
 //   name    first formula cut to 32 characters
-//   rows    5 rows of { id, y, on, color, bpm, vol }; y is the formula. The app has no length cap
-//           on formulas; this server keeps at most 500 characters of each (projectFrom).
+//   rows    5 rows of { id, y, on, color, bpm, vol }; y is the formula, with NO length cap in the app
 //   seconds one of 30…1200
 //   patch   the knob object: the app's defaults (mode, presetId, formula, engine, x, y, z, w, a, b,
 //           g, d, bpm, vol, lpf, res, pan, seconds) plus muted
-// Worst case, measured with JSON.stringify and every number at its longest text form
-// (-0.12345678901234568, Number.MAX_SAFE_INTEGER ids):
-//   ASCII formulas and name                              3,514 bytes  (realistic maximum)
-//   every character a 3-byte UTF-8 symbol (− ≤ ·)        8,578 bytes  (absolute worst case)
-// Limit: 10 KB, about 19% above the absolute worst case.
+// Two different numbers:
+// 1. Stored size (what goes to disk) is bounded by projectFrom(): name ≤ 32, 5 rows, formula ≤ 500,
+//    color ≤ 40, only the knob fields in patch (strings ≤ 40, patch formula ≤ 500, finite numbers).
+//    Measured on this server with JSON.stringify, every field at its cap, every number at its longest
+//    text form (-1.7976931348623157e+308):
+//      ASCII text                                              about 3.5 KB
+//      every character a 3-byte UTF-8 symbol (− ≤ ·)           10,969 bytes
+//      every character escaped as \uXXXX (control characters
+//      or lone surrogates, 6 bytes each): absolute maximum     21,045 bytes  → bound: 21 KB
+// 2. Request cap (what /drafts reads) only protects the server; it is not the draft size. The app does
+//    not cap formulas, so longer ones must still be accepted and trimmed to 500, as before this PR.
+//    128 KB stays above the 100 KB the server accepted before, so nothing that used to save is now
+//    refused; it fits 5 ASCII formulas of ~26,000 characters each, about 6× the stored maximum.
 const MAX_DRAFTS = 8;
-const MAX_DRAFT = 10 * 1024;
+const MAX_DRAFT_BODY = 128 * 1024;
+const MAX_FORMULA = 500;
+const PATCH_STRINGS = { mode: 40, presetId: 40, engine: 40, formula: MAX_FORMULA };
+const PATCH_NUMBERS = ["x", "y", "z", "w", "a", "b", "g", "d", "bpm", "vol", "lpf", "res", "pan", "seconds"];
 const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
 const APP_VERSION = "36"; // keep in sync with web/index.html (?v=) and the app bundle
 const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
@@ -212,9 +222,23 @@ export function createApp({
     return name || "Untitled";
   }
 
+  // Only the knob fields the app reads back ({ ...defaults, ...patch }), each bounded.
+  function patchFrom(value) {
+    const patch = {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return patch;
+    for (const [key, max] of Object.entries(PATCH_STRINGS)) {
+      if (typeof value[key] === "string") patch[key] = value[key].slice(0, max);
+    }
+    for (const key of PATCH_NUMBERS) {
+      if (typeof value[key] === "number" && Number.isFinite(value[key])) patch[key] = value[key];
+    }
+    if (typeof value.muted === "boolean") patch.muted = value.muted;
+    return patch;
+  }
+
   function projectFrom(body, id) {
     const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 5).map((row) => ({
-      y: String(row?.y || "").slice(0, 500),
+      y: String(row?.y || "").slice(0, MAX_FORMULA),
       on: Boolean(row?.on),
       color: String(row?.color || "").slice(0, 40),
       bpm: Math.min(180, Math.max(80, Math.round(Number(row?.bpm) || 120))),
@@ -225,7 +249,7 @@ export function createApp({
       name: id === "progress" ? "Progress" : cleanName(body?.name),
       updated: Date.now(),
       seconds: Math.min(1200, Math.max(1, Number(body?.seconds) || 60)),
-      patch: body?.patch && typeof body.patch === "object" ? body.patch : {},
+      patch: patchFrom(body?.patch),
       rows,
     };
   }
@@ -598,7 +622,7 @@ export function createApp({
     if (req.method !== "POST") return json(res, 405, { ok: false });
     let raw;
     try {
-      raw = await readBody(req, MAX_DRAFT);
+      raw = await readBody(req, MAX_DRAFT_BODY);
     } catch (err) {
       return fail(req, res, err);
     }
