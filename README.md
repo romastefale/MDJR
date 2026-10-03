@@ -66,6 +66,8 @@ Erros mostram a mensagem e a causa, mas nunca a URL completa da requisição, os
 
 `npm test` roda os testes com `node:test`, sem dependências, sem token e sem falar com o Telegram. `npm run check` confere a sintaxe.
 
+Os testes sobem o servidor de verdade numa porta local e conversam com ele por HTTP. Do outro lado fica um Telegram falso e rígido (`test/fake-bot-api.js`): ele confere cada chamada contra a tabela `test/bot-api-schema.js`, copiada da documentação oficial da Bot API 10.3, e reprova o teste se aparecer método desconhecido, parâmetro a mais, parâmetro faltando, tipo errado ou valor fora do limite, inclusive no upload do MP3. Cada teste diz de onde vem o comportamento esperado: a seção da documentação oficial ou uma decisão do Pi.
+
 ## Licença
 
 MIT. Veja o arquivo [LICENSE](LICENSE).

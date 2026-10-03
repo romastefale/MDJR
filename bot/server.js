@@ -11,7 +11,8 @@ const MAX_SONG = 22 * 1024 * 1024;
 const MAX_DRAFT = 100_000;
 const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
 const APP_VERSION = "36"; // keep in sync with web/index.html (?v=) and the app bundle
-const KNOWN_ORIGINS = ["https://romastefale.github.io", "https://mdjr.up.railway.app"];
+const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
+const KNOWN_ORIGINS = ["https://romastefale.github.io", DEFAULT_ORIGIN];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
 const MEMBER_STATUSES = new Set(["creator", "administrator", "member", "restricted"]);
 const SECRET_CHARSET = /^[A-Za-z0-9_-]{1,256}$/; // setWebhook secret_token rules
@@ -24,7 +25,14 @@ export const ALLOWED_UPDATES = ["message", "my_chat_member"];
 export function publicOrigin(env = process.env) {
   if (env.PUBLIC_URL) return env.PUBLIC_URL.replace(/\/$/, "");
   if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
-  return "https://mdjr.up.railway.app";
+  return DEFAULT_ORIGIN;
+}
+
+// Mini App links must be HTTPS (https://core.telegram.org/bots/api#webappinfo: "An HTTPS URL of a
+// Web App"). With a plain-HTTP PUBLIC_URL (local development) the buttons keep opening the public app.
+export function miniAppOrigin(env = process.env) {
+  const origin = publicOrigin(env);
+  return /^https:\/\/[^/]+$/i.test(origin) ? origin : DEFAULT_ORIGIN;
 }
 
 // Public HTTPS origin Telegram can reach for the webhook, or null (e.g. local dev).
@@ -160,8 +168,8 @@ export function createApp({
   log = console.error,
   info = console.log,
 } = {}) {
-  const origin = publicOrigin(env);
-  const allowed = new Set([...KNOWN_ORIGINS, origin]);
+  const origin = miniAppOrigin(env);
+  const allowed = new Set([...KNOWN_ORIGINS, publicOrigin(env)]);
   const secret = webhookSecret(token, env);
   // Every log line from the app is redacted (token, webhook secret, token-shaped strings).
   const logger = createLogger({ secrets: [token, secret, env.WEBHOOK_SECRET], sink: { error: log, log: info } });

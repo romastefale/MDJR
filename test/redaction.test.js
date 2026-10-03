@@ -24,6 +24,7 @@ function assertNoLeak(text, secrets = [TOKEN, SECRET]) {
 const apiUrl = (method) => `https://api.telegram.org/bot${TOKEN}/${method}`;
 
 describe("Decisão do Pi: logs nunca mostram o token", () => {
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("redactor removes token, secret, URL-encoded and partial copies, keeps other text", () => {
     const redact = createRedactor([TOKEN, SECRET]);
     const out = redact([
@@ -40,6 +41,7 @@ describe("Decisão do Pi: logs nunca mostram o token", () => {
     assert.ok(out.includes(REDACTED));
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("logger redacts every argument, including Error message and cause chain", () => {
     const lines = [];
     const logger = createLogger({ secrets: [TOKEN, SECRET], sink: { error: (l) => lines.push(l), log: (l) => lines.push(l) } });
@@ -51,6 +53,7 @@ describe("Decisão do Pi: logs nunca mostram o token", () => {
     assertNoLeak(lines.join("\n"));
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("Bot API client: network error with the URL in message, cause and stack is logged redacted", async () => {
     const lines = [];
     const tg = createTelegram(TOKEN, {
@@ -68,6 +71,7 @@ describe("Decisão do Pi: logs nunca mostram o token", () => {
     assertNoLeak(lines.join("\n"), [TOKEN]);
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("Bot API client: an error description echoing the token is logged redacted", async () => {
     const lines = [];
     const tg = createTelegram(TOKEN, {
@@ -79,6 +83,7 @@ describe("Decisão do Pi: logs nunca mostram o token", () => {
     assert.match(lines[0], /401 Unauthorized/);
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("server: handler errors carrying token and secret are logged redacted", async () => {
     const lines = [];
     const telegram = {
@@ -96,6 +101,7 @@ describe("Decisão do Pi: logs nunca mostram o token", () => {
     assertNoLeak(lines.join("\n"));
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("crash handler logs a redacted stack and exits with 1", () => {
     const lines = [];
     const codes = [];
@@ -131,6 +137,7 @@ function runServer(extraEnv, ms) {
 }
 
 describe("Decisão do Pi: logs nunca mostram o token (processo real)", () => {
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("failing Bot API calls during startup and SIGTERM never print token or secret", async () => {
     const { code, out } = await runServer({}, 2600);
     assert.match(out, /telegram getMe: /, "the failure is logged");
@@ -139,6 +146,7 @@ describe("Decisão do Pi: logs nunca mostram o token (processo real)", () => {
     assertNoLeak(out);
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("an unhandled rejection with the token in its stack is logged redacted and exits 1", async () => {
     const { code, out } = await runServer({ MDJR_TEST_CRASH: "1" }, 3000);
     assert.match(out, /unhandledRejection/);
@@ -146,6 +154,7 @@ describe("Decisão do Pi: logs nunca mostram o token (processo real)", () => {
     assertNoLeak(out);
   });
 
+  // Decisão do Pi: logs nunca mostram o token nem o segredo do webhook, nem em parte.
   test("an explicit WEBHOOK_SECRET is never printed either", async () => {
     const custom = "Pi_custom-secret_value_42";
     const { out } = await runServer({ WEBHOOK_SECRET: custom }, 1200);
