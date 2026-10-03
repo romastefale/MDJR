@@ -22,6 +22,7 @@ const PUBLIC = "https://mdjr.up.railway.app";
 const ENV = { PUBLIC_URL: PUBLIC };
 const GH = "https://romastefale.github.io";
 const USER = { id: 42, is_bot: false, first_name: "Pi", language_code: "en" };
+const VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 
 // Independent implementation of the documented initData signature, for tests only:
 // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
@@ -176,6 +177,15 @@ describe("Bot setup (commands, descriptions, menu button)", () => {
     assert.equal(new URL(button.web_app.url).origin, PUBLIC);
     const health = await (await fetch(`${ctx.base}/health`)).json();
     assert.equal(button.web_app.url, health.webapp);
+  });
+
+  // Decisão do Pi: one app version, "version" in package.json; links carry it as ?v= (cache busting)
+  // and /health reports it for the app's update check.
+  test("the version in package.json is the ?v= of the Mini App link and `version` in /health", async () => {
+    const health = await (await fetch(`${ctx.base}/health`)).json();
+    assert.equal(health.version, VERSION);
+    assert.equal(new URL(health.webapp).searchParams.get("v"), VERSION);
+    assert.equal(new URL(ctx.fake.state.menuButtons.get("default").web_app.url).searchParams.get("v"), VERSION);
   });
 });
 
@@ -778,7 +788,7 @@ describe("Mini App API", () => {
     assert.equal(res.headers.get("access-control-allow-origin"), GH);
     assert.match(res.headers.get("vary") || "", /origin/i);
     const body = await res.json();
-    assert.deepEqual(Object.keys(body).sort(), ["ok", "service", "webapp"]);
+    assert.deepEqual(Object.keys(body).sort(), ["ok", "service", "version", "webapp"]);
     assert.ok(!JSON.stringify(body).includes("TEST-token"));
     assert.equal((await fetch(`${ctx.base}/health`, { headers: { origin: PUBLIC } })).headers.get("access-control-allow-origin"), PUBLIC);
     assert.equal((await fetch(`${ctx.base}/health`, { headers: { origin: "https://evil.example" } })).headers.get("access-control-allow-origin"), null);

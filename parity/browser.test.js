@@ -5,14 +5,12 @@ import { after, before, describe, test } from "node:test";
 import assert from "node:assert/strict";
 import crypto from "node:crypto";
 import { CARDS } from "../web/hits.js";
-import { APP_VERSION } from "../web/src/config.js";
-import { API, BUILDS, decodeMp3, domDiff, domLines, launch, maxAbsDiff, openApp, pixelDiff, renderWorklet, settle, startServer, uiText } from "./harness.js";
+import { API, APP_VERSION, BUILDS, decodeMp3, domDiff, domLines, launch, maxAbsDiff, openApp, pixelDiff, renderWorklet, settle, startServer, uiText } from "./harness.js";
 
 const PARITY = "paridade com o bundle original ba3a7e7";
 const TG_DOCS = "https://core.telegram.org/bots/webapps";
 const INIT_DATA = "query_id=AAE&user=%7B%22id%22%3A42%2C%22first_name%22%3A%22Pi%22%7D&auth_date=1790000000&hash=abc";
 const SUMMARY = [];
-const NEXT = Number(APP_VERSION) + 1;
 // Telegram.WebApp double: inside Telegram, signed-in user, safe areas of an iPhone with a notch.
 const tg = {
   platform: "ios",
@@ -334,24 +332,81 @@ describe(`Telegram Mini App integration (${TG_DOCS}; ${PARITY})`, () => {
     }
   });
 
-  test("/health version check: newer ?v= on the API origin moves to it keeping ?draft=; otherwise stays", async () => {
-    const cases = [
-      { health: { ok: true, webapp: `${API}/?v=${NEXT}` }, query: "&draft=0123abcd" },
-      { health: { ok: true, webapp: `${API}/?v=${NEXT}` }, query: "" },
-      { health: { ok: true, webapp: `https://evil.example/?v=${NEXT}` }, query: "" },
-      { health: { ok: true, webapp: `${API}/?v=${APP_VERSION}` }, query: "" },
-    ];
+});
+
+// Changed on purpose in v40 (Decisão do Pi): one version in package.json, a silent update check that
+// reloads the same address, and the API on the page's own server (Railway, PR environments, local
+// runs) or on Railway from GitHub Pages. The original's behaviour is recorded next to each case.
+describe("update check and API address (Decisão do Pi; v40)", () => {
+  const OTHER = String(Number(APP_VERSION) + 1);
+  const stays = async (app, ms = 800) => {
+    await app.page.waitForTimeout(ms);
+    return { navigations: [...app.navigations], requests: app.requests.map((r) => `${r.method} ${r.path}`), local: [...app.local], mark: await app.page.evaluate(() => document.querySelector(".mark")?.textContent ?? "") };
+  };
+
+  test("Railway: another version on the server reloads the same address with that ?v=, keeping ?draft= and the Telegram #hash", async () => {
+    const hash = "#tgWebAppData=x&tgWebAppVersion=8.0";
     const moved = [];
-    for (const options of cases) {
-      const [a, b] = await both({ ...options, waitForApp: false }, async ({ page, navigations }) => {
-        await page.waitForTimeout(800);
-        return { navigations: [...navigations] };
-      });
-      assert.deepEqual(b, a, JSON.stringify(options));
-      moved.push(b.navigations);
+    for (const other of [OTHER, "39"]) {
+      const app = await openApp(browser, server, "source", { query: "&draft=0123abcd", hash, health: { ok: true, version: other }, waitForApp: false });
+      await app.page.waitForURL((url) => url.searchParams.get("v") === other);
+      moved.push(app.page.url());
+      await app.close();
     }
-    assert.deepEqual(moved, [[`${API}/?v=${NEXT}&draft=0123abcd`], [`${API}/?v=${NEXT}`], [], []]);
-    SUMMARY.push(`version check navigations: ${JSON.stringify(moved)}`);
+    assert.deepEqual(moved, [`${API}/?v=${OTHER}&draft=0123abcd${hash}`, `${API}/?v=39&draft=0123abcd${hash}`]);
+    SUMMARY.push(`update check, other version: ${moved.join(" | ")}`);
+  });
+
+  test("Railway: same version, or an address that already has the server's ?v= (stale bundle), stays: no reload loop", async () => {
+    for (const options of [{}, { version: OTHER, health: { ok: true, version: OTHER } }]) {
+      const app = await openApp(browser, server, "source", options);
+      const trace = await stays(app);
+      await app.close();
+      assert.deepEqual(trace.navigations, []);
+      assert.deepEqual(trace.requests, ["GET /health"]);
+    }
+  });
+
+  test("a failed check (503, network error, not JSON, no version) shows nothing and the app keeps working", async () => {
+    const failures = {
+      503: (route, cors) => route.fulfill({ status: 503, headers: cors, body: "Application failed to respond" }),
+      network: (route) => route.abort("connectionrefused"),
+      html: (route, cors) => route.fulfill({ status: 200, headers: cors, contentType: "text/html", body: "<html>" }),
+      "no version": (route, cors) => route.fulfill({ status: 200, headers: cors, contentType: "application/json", body: "{\"ok\":true}" }),
+    };
+    const marks = {};
+    for (const [name, health] of Object.entries(failures)) {
+      const [legacy, source] = await both({ health }, (app) => stays(app));
+      assert.deepEqual(source.navigations, [], name);
+      assert.equal(source.mark, "", name);
+      assert.deepEqual(source.pageErrors, [], name);
+      marks[name] = `${JSON.stringify(legacy.mark)} -> ${JSON.stringify(source.mark)}`;
+    }
+    assert.equal(marks[503], '"failed" -> ""', "the original showed \"failed\" on the plane");
+    SUMMARY.push(`failed check, mark original -> now: ${JSON.stringify(marks)}`);
+  });
+
+  test("GitHub Pages: drafts go to Railway (CORS), no update check, no move to Railway when versions differ", async () => {
+    const health = { ok: true, version: OTHER, webapp: `${API}/?v=${OTHER}` };
+    const api = () => ({ status: 404, json: { ok: false } });
+    const [legacy, source] = await both({ site: "pages", tg: { ...tg, initDataUnsafe: {} }, health, api, waitForApp: false }, (app) => stays(app, 1500));
+    assert.deepEqual(source.navigations, []);
+    assert.deepEqual(source.requests, ["GET /drafts/progress"]);
+    assert.equal(source.mark, "");
+    assert.deepEqual(legacy.navigations, [`${API}/?v=${OTHER}`], "the original left Pages for Railway");
+    SUMMARY.push(`Pages: requests ${source.requests.join(", ")}; navigations original ${JSON.stringify(legacy.navigations)} -> now []`);
+  });
+
+  test("local server: /health and drafts on the page's own origin, no 'failed' (the original called production, which sends no CORS headers to local pages)", async () => {
+    const [legacy, source] = await both({ site: "local", tg: { ...tg, initDataUnsafe: {} }, waitForApp: false }, (app) => stays(app, 1500));
+    assert.deepEqual(source.requests, [], "nothing goes to production");
+    assert.deepEqual(source.local, ["GET /health 200", "GET /drafts/progress 503"]);
+    assert.deepEqual(source.navigations, []);
+    assert.equal(source.mark, "");
+    assert.equal(legacy.mark, "failed");
+    const health = await (await fetch(`${server.origin}/health`)).json();
+    assert.equal(health.version, APP_VERSION);
+    SUMMARY.push(`local: ${source.local.join(", ")}; original: ${legacy.requests.join(", ")} -> mark ${JSON.stringify(legacy.mark)}`);
   });
 });
 

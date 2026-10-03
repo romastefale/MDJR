@@ -1,8 +1,8 @@
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { inventHit } from "../hits.js";
-import { apiOrigin, apiRequest } from "./api.js";
-import { API_ORIGIN, APP_VERSION, DURATIONS, ROW_COUNT, SAMPLE_RATE } from "./config.js";
+import { apiOrigin, apiRequest, onPages } from "./api.js";
+import { APP_VERSION, DURATIONS, ROW_COUNT, SAMPLE_RATE } from "./config.js";
 import { createDcBlock, createLowpass } from "./dsp.js";
 import { compileRow, DEFAULT_PATCH, sampleRow, toDisplay } from "./formula.js";
 import { Glass, GLASS_BAR } from "./glass.jsx";
@@ -29,7 +29,7 @@ export function App() {
   const [rowMenuPage, setRowMenuPage] = useState("root");
   const [rowMenuBox, setRowMenuBox] = useState({ max: 240, right: 8, top: null, bottom: null });
   const [playing, setPlaying] = useState(false);
-  // Short status shown on the plane: "failed", "sent", "sem áudio" or a draft name.
+  // Short status shown on the plane: "sent" or "failed" (song to the chat), "sem áudio" or a draft name.
   const [mark, setMark] = useState("");
   const [dark, setDark] = useState(true);
   // True while a formula is being typed (keyboard open): the plane hides.
@@ -246,24 +246,22 @@ export function App() {
     };
   }, []);
 
-  // Version check: when the server announces a newer ?v=, move to it (keeping ?draft=).
+  // Update check: if the server that served this page runs another version, reload the same address
+  // with that ?v= (index.html is served with no-cache and its assets carry ?v=, so they come fresh).
+  // Once only: an address that already has that ?v= stays. A failed check shows nothing. Pages has
+  // no server of its own and updates on its own deploy, so the check is skipped there.
   useEffect(() => {
-    fetch(`${API_ORIGIN}/health`, { cache: "no-store" }).then(
-      async (response) => {
-        if (!response.ok) {
-          setMark("failed");
-          return;
-        }
-        const health = await response.json();
-        const latest = Number(new URL(String(health.webapp)).searchParams.get("v") || 0);
-        const target = new URL(String(health.webapp));
-        if (!latest || latest <= Number(APP_VERSION) || target.origin !== API_ORIGIN) return;
-        const draft = new URL(location.href).searchParams.get("draft");
-        if (draft) target.searchParams.set("draft", draft);
-        location.replace(target.href);
-      },
-      () => setMark("failed"),
-    );
+    if (onPages()) return;
+    fetch(`${apiOrigin()}/health`, { cache: "no-store" })
+      .then((response) => (response.ok ? response.json() : null))
+      .then((health) => {
+        const latest = String(health?.version || "");
+        const url = new URL(location.href);
+        if (!latest || latest === APP_VERSION || url.searchParams.get("v") === latest) return;
+        url.searchParams.set("v", latest);
+        location.replace(url.href);
+      })
+      .catch(() => {});
   }, []);
 
   // Start-up: load the draft (?draft= or start_param) or the progress slot, apply the theme,
