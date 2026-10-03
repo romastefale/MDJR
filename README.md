@@ -21,7 +21,9 @@ Monte uma faixa escrevendo matemática. Cada linha é uma fórmula `y = f(x)`: e
 
 ## No Telegram
 
-Abra o Math DJ pelo bot e o app retoma de onde você parou. Você pode guardar até **5 rascunhos**, e o comando `/draft` mostra a lista.
+Abra o Math DJ pelo bot e o app retoma de onde você parou. Você pode guardar até **5 rascunhos**, e o comando `/draft` mostra a lista. O `/help` explica como funciona.
+
+O bot funciona só no **chat privado**: em grupos e canais ele não responde e sai. Os textos aparecem em português para quem usa o Telegram em português e em inglês para os demais.
 
 ## Para publicar
 
@@ -30,6 +32,8 @@ O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API 
 - `BOT_TOKEN` (obrigatória): o token do bot
 - `PUBLIC_URL` (opcional): o endereço público do servidor, por padrão `https://mdjr.up.railway.app`
 - Monte um volume em `/mdjr-volume` para guardar o progresso e os rascunhos
+
+Para testar localmente (sem token e sem falar com o Telegram): `npm test`.
 
 ## Licença
 
