@@ -7,7 +7,19 @@
   },
   "scripts": {
     "start": "node bot/server.js",
+    "build": "node scripts/build-web.mjs",
     "test": "node --test test/*.test.js",
-    "check": "node --check bot/server.js && node --check bot/telegram.js && node --check bot/i18n.js && node --check bot/log.js && node --check test/bot-api-schema.js && node --check test/fake-bot-api.js"
+    "test:browser": "node --test parity/*.test.js",
+    "test:all": "npm test && npm run test:browser",
+    "check": "node --check bot/server.js && node --check bot/telegram.js && node --check bot/i18n.js && node --check bot/log.js && node --check test/bot-api-schema.js && node --check test/fake-bot-api.js && node scripts/build-web.mjs --check"
+  },
+  "dependencies": {
+    "@breezystack/lamejs": "1.2.7",
+    "esbuild": "0.28.2",
+    "react": "19.3.0",
+    "react-dom": "19.3.0"
+  },
+  "devDependencies": {
+    "playwright": "1.63.0"
   }
 }
