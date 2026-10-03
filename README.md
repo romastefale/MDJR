@@ -29,6 +29,14 @@ O bot funciona só no **chat privado**: em grupos e canais ele não responde e s
 
 O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API ficam em `bot/server.js` (Node 20 ou mais novo), pensados para o Railway.
 
+### O app
+
+O código do app fica em `web/src/` (React 19.3 com JSX). `npm run build` junta tudo com o esbuild em `web/app.js`, o arquivo que o `index.html` carrega. O `web/app.js` gerado fica no repositório: o Pages publica o arquivo como está, e o Railway (Nixpacks roda `npm run build` quando o script existe) gera de novo o mesmo arquivo, byte a byte. Depois de mudar `web/src/`, rode `npm run build` e faça commit dos dois; o `npm test` reprova se o `web/app.js` não for o build de `web/src/`.
+
+- `hits.js` e `worklet.js` continuam arquivos soltos em `web/`, carregados com o mesmo `?v=` do app.
+- A versão (`?v=`) fica em três lugares: `web/src/config.js`, `web/index.html` e `bot/server.js`. O build para com erro se eles não baterem.
+- Dependências: `react` e `react-dom` 19.3.0, `@breezystack/lamejs` 1.2.7 (o codificador MP3) e `esbuild` 0.28.2, com versões fixas no `package-lock.json`.
+
 ### Variáveis
 
 - `BOT_TOKEN` (obrigatória): o token do bot
@@ -71,7 +79,9 @@ Erros mostram a mensagem e a causa, mas nunca a URL completa da requisição, os
 
 ### Testes
 
-`npm test` roda os testes com `node:test`, sem dependências, sem token e sem falar com o Telegram. `npm run check` confere a sintaxe.
+`npm test` roda os testes com `node:test`, sem token e sem falar com o Telegram (antes, `npm ci`). `npm run check` confere a sintaxe e se o `web/app.js` está igual ao build de `web/src/`.
+
+Além dos testes do servidor, `npm test` compara o app com o bundle original (`parity/legacy-app.js`, o `web/app.js` do `main` em ba3a7e7): o leitor de fórmulas em milhares de entradas, os filtros, o MP3 byte a byte e o código do React e do codificador. `npm run test:browser` abre os dois builds lado a lado no Chromium headless (`npx playwright install chromium` antes) e compara DOM, textos, capturas de tela, chamadas ao Telegram e à API, e o áudio.
 
 Os testes sobem o servidor de verdade numa porta local e conversam com ele por HTTP. Do outro lado fica um Telegram falso e rígido (`test/fake-bot-api.js`): ele confere cada chamada contra a tabela `test/bot-api-schema.js`, copiada da documentação oficial da Bot API 10.3, e reprova o teste se aparecer método desconhecido, parâmetro a mais, parâmetro faltando, tipo errado ou valor fora do limite, inclusive no upload do MP3. Cada teste diz de onde vem o comportamento esperado: a seção da documentação oficial ou uma decisão do Pi.
 
