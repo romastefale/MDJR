@@ -4,9 +4,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import fs from "node:fs";
-import { buildWeb, versionProblems } from "../scripts/build-web.mjs";
+import { APP_VERSION, buildWeb, indexHtml } from "../scripts/build-web.mjs";
 import { LEGACY_BUNDLE } from "../parity/legacy.js";
-import { APP_VERSION } from "../web/src/config.js";
 
 const read = (file) => fs.readFileSync(new URL(file, import.meta.url), "utf8");
 
@@ -14,20 +13,24 @@ test("web/app.js is exactly what `npm run build` produces from web/src (commit t
   assert.equal(await buildWeb(), read("../web/app.js"));
 });
 
-test("index.html (?v=), bot/server.js APP_VERSION and web/src/config.js agree on the version", () => {
-  assert.deepEqual(versionProblems(), []);
+// Decisão do Pi: the version lives only in package.json; the build stamps it everywhere the page needs it.
+test("index.html loads app.js and desk.css with ?v= = package.json version, as written by the build", () => {
+  const html = read("../web/index.html");
+  assert.equal(APP_VERSION, JSON.parse(read("../package.json")).version);
+  assert.equal(indexHtml(html), html);
+  assert.deepEqual([...html.matchAll(/\.\/(app\.js|desk\.css)\?v=([^"]*)/g)].map((m) => `${m[1]} ${m[2]}`), [`desk.css ${APP_VERSION}`, `app.js ${APP_VERSION}`]);
+  assert.equal(indexHtml(html.replaceAll(`?v=${APP_VERSION}`, "?v=1")), html);
 });
 
-test("the bundle loads hits.js and worklet.js with the same ?v= as the original", () => {
-  const bundle = read("../web/app.js");
+test("the bundle loads hits.js and worklet.js with ?v= = package.json version, like the original with its own", () => {
   const legacy = fs.readFileSync(LEGACY_BUNDLE, "utf8");
-  const v = APP_VERSION;
-  for (const code of [legacy, bundle]) {
-    assert.ok(code.includes(`from"./hits.js?v=${v}"`));
-    // esbuild inlines APP_VERSION into the template literal: `./worklet.js?v=${"39"}` is the same string.
-    assert.ok(code.includes(`"./worklet.js?v=${v}"`) || code.includes(`\`./worklet.js?v=\${"${v}"}\``));
-    assert.match(code, /"mdjr-mix"/);
-  }
+  assert.ok(legacy.includes('from"./hits.js?v=39"') && legacy.includes('"./worklet.js?v=39"'));
+  const bundle = read("../web/app.js");
+  assert.ok(bundle.includes(`from"./hits.js?v=${APP_VERSION}"`));
+  // esbuild inlines the version into the template literal: `./worklet.js?v=${"40"}` is the same string.
+  assert.ok(bundle.includes(`\`./worklet.js?v=\${"${APP_VERSION}"}\``));
+  assert.ok(!bundle.includes("__APP_VERSION__"));
+  assert.match(bundle, /"mdjr-mix"/);
 });
 
 // Identifiers are renamed by the minifier; everything else must match token for token.

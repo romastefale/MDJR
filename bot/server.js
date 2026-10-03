@@ -34,7 +34,8 @@ const MAX_FORMULA = 500;
 const PATCH_STRINGS = { mode: 40, presetId: 40, engine: 40, formula: MAX_FORMULA };
 const PATCH_NUMBERS = ["x", "y", "z", "w", "a", "b", "g", "d", "bpm", "vol", "lpf", "res", "pan", "seconds"];
 const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
-const APP_VERSION = "39"; // keep in sync with web/index.html (?v=) and the app bundle
+// The app version (package.json): ?v= of every Mini App link and `version` in /health.
+const APP_VERSION = JSON.parse(fs.readFileSync(new URL("../package.json", import.meta.url), "utf8")).version;
 const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
 const KNOWN_ORIGINS = ["https://romastefale.github.io", DEFAULT_ORIGIN];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
@@ -652,8 +653,8 @@ export function createApp({
       if (urlPath === WEBHOOK_PATH) return await onWebhook(req, res);
       if (urlPath === "/health") {
         cors(req, res);
-        // The app only reads `webapp` (its version check). No bot/token details here.
-        return json(res, 200, { ok: true, service: "mdjr-bot", webapp: appUrl(origin) });
+        // The app reads `version` (its update check; bundles up to v39 read `webapp`). No bot/token details here.
+        return json(res, 200, { ok: true, service: "mdjr-bot", version: APP_VERSION, webapp: appUrl(origin) });
       }
       if (urlPath === "/song" && req.method === "POST") {
         cors(req, res);

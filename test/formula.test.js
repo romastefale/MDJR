@@ -176,7 +176,6 @@ describe("formula language (paridade com o bundle original ba3a7e7)", () => {
 
 describe("row helpers and constants (paridade com o bundle original ba3a7e7)", () => {
   test("config constants", () => {
-    assert.equal(config.APP_VERSION, legacy.APP_VERSION);
     assert.equal(config.SAMPLE_RATE, legacy.SAMPLE_RATE);
     assert.equal(config.ROW_COUNT, legacy.ROW_COUNT);
     assert.equal(config.VIEW_SECONDS, legacy.VIEW_SECONDS);

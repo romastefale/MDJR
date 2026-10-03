@@ -1,8 +1,15 @@
-import { API_ORIGIN } from "./config.js";
 import { telegramApp } from "./telegram.js";
 
+// GitHub Pages only hosts the page, so there the API (drafts, /song, /health) is the Railway server.
+// Everywhere else the page comes from bot/server.js itself, which is also the API.
+const RAILWAY = "https://mdjr.up.railway.app";
+
+export function onPages() {
+  return location.hostname.endsWith(".github.io");
+}
+
 export function apiOrigin() {
-  return API_ORIGIN;
+  return onPages() ? RAILWAY : location.origin;
 }
 
 // JSON call to the drafts API, authenticated by Telegram initData (validated by bot/server.js).

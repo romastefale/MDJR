@@ -1,9 +1,7 @@
-// App-wide constants. APP_VERSION must match `?v=` in web/index.html and APP_VERSION in
-// bot/server.js; `npm run build` refuses to build when they disagree.
-export const APP_VERSION = "39";
+// App-wide constants.
 
-// The API (drafts, /song, /health) always lives on Railway, also when the page is served by GitHub Pages.
-export const API_ORIGIN = "https://mdjr.up.railway.app";
+// The app version is the "version" of package.json; `npm run build` writes it into the bundle.
+export const APP_VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "";
 
 export const SAMPLE_RATE = 44100;
 export const ROW_COUNT = 5;

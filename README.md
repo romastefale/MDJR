@@ -34,7 +34,9 @@ O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API 
 O código do app fica em `web/src/` (React 19.3 com JSX). `npm run build` junta tudo com o esbuild em `web/app.js`, o arquivo que o `index.html` carrega. O `web/app.js` gerado fica no repositório: o Pages publica o arquivo como está, e o Railway (Nixpacks roda `npm run build` quando o script existe) gera de novo o mesmo arquivo, byte a byte. Depois de mudar `web/src/`, rode `npm run build` e faça commit dos dois; o `npm test` reprova se o `web/app.js` não for o build de `web/src/`.
 
 - `hits.js` e `worklet.js` continuam arquivos soltos em `web/`, carregados com o mesmo `?v=` do app.
-- A versão (`?v=`) fica em três lugares: `web/src/config.js`, `web/index.html` e `bot/server.js`. O build para com erro se eles não baterem.
+- A versão fica só no `version` do `package.json`. O `npm run build` escreve no `web/app.js` e nos `?v=` do `web/index.html`, e o servidor lê ao iniciar (links do bot e `/health`). Para lançar uma versão, mude o `package.json` e rode `npm run build`.
+- Ao abrir, o app pergunta ao próprio servidor (`/health`) qual é a versão atual. Se for outra, recarrega o mesmo endereço com o novo `?v=`, uma vez só. Se a checagem falhar, nada aparece. No Pages não há checagem: ele atualiza no próprio deploy.
+- A API é o servidor que serviu a página (Railway, ambientes de PR, `npm start` local). Só no Pages ela é o `https://mdjr.up.railway.app`.
 - Dependências: `react` e `react-dom` 19.3.0, `@breezystack/lamejs` 1.2.7 (o codificador MP3) e `esbuild` 0.28.2, com versões fixas no `package-lock.json`.
 
 ### Variáveis

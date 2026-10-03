@@ -1,8 +1,13 @@
 // Runs the original bundle (parity/legacy-app.js) and the build of web/src (web/app.js) side by
 // side in headless Chromium, both served by `node bot/server.js` (no BOT_TOKEN: it only serves web/).
-// Everything outside the box is stubbed so both builds see exactly the same world:
+// The page is opened on one of three sites:
+//  - "railway" (default): https://mdjr.up.railway.app, as in production; files come from the local
+//    server, the API (health, drafts, song) is a recording double
+//  - "pages": https://romastefale.github.io/MDJR/, files from the local server, API double on Railway
+//  - "local": the local server itself (http://127.0.0.1:port), API included; calls to production
+//    fail, as in a real browser (production sends no CORS headers to this origin; checked with curl)
+// Everything else outside the box is stubbed so both builds see exactly the same world:
 //  - https://telegram.org/js/telegram-web-app.js -> a recording Telegram.WebApp double
-//  - https://mdjr.up.railway.app/* (health, drafts, song) -> a recording API double
 //  - Math.random -> seeded, so the background hues and the hits.js voices are the same on both sides
 import { spawn } from "node:child_process";
 import fs from "node:fs";
@@ -11,12 +16,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { chromium } from "playwright";
-import { APP_VERSION } from "../web/src/config.js";
+import { APP_VERSION } from "../scripts/build-web.mjs";
 import { LEGACY_BUNDLE } from "./legacy.js";
 
 const root = path.resolve(path.dirname(fileURLToPath(import.meta.url)), "..");
 const LEGACY_CODE = fs.readFileSync(LEGACY_BUNDLE, "utf8");
+const LEGACY_VERSION = /hits\.js\?v=(\d+)/.exec(LEGACY_CODE)[1];
 export const API = "https://mdjr.up.railway.app";
+export const PAGES = "https://romastefale.github.io/MDJR";
+export { APP_VERSION };
+const API_PATH = /^\/(health|song|drafts(\/[\w-]+)?)$/;
 export const BUILDS = ["legacy", "source"];
 
 function freePort() {
@@ -99,40 +108,62 @@ const INIT_SCRIPT = `(() => {
   };
 })();`;
 
-// Opens the app with one build. `api(method, path, body)` returns { status, json } for the API double.
+// Opens the app with one build. `api(method, path, body)` returns { status, json } for the API double;
+// `health` is the /health body, or a function (route) => fulfil/abort for failures.
 export async function openApp(browser, server, build, options = {}) {
   const {
+    site = "railway",
     tg = null,
+    version = APP_VERSION, // ?v= of the address the page is opened at
     query = "",
+    hash = "",
     colorScheme = "light",
     viewport = { width: 390, height: 844 },
     api = () => null,
-    health = { ok: true, service: "mdjr-bot", webapp: `${API}/?v=${APP_VERSION}` },
+    // `webapp` carries the original bundle's own version (it compares with that), `version` this one's:
+    // by default neither build moves.
+    health = { ok: true, service: "mdjr-bot", version: APP_VERSION, webapp: `${API}/?v=${LEGACY_VERSION}` },
     sessionTheme = null,
-    waitForApp = true, // false when the app is expected to navigate away (version check)
+    waitForApp = true, // false when the app is expected to navigate away (update check)
   } = options;
   const context = await browser.newContext({ viewport, deviceScaleFactor: 2, colorScheme, acceptDownloads: true, hasTouch: false });
   context.setDefaultTimeout(15000);
   const requests = [];
   const navigations = [];
+  const base = { railway: API, pages: PAGES, local: server.origin }[site];
+  const pageUrl = `${base}/?v=${version}${query}${hash}`;
   await context.addInitScript(INIT_SCRIPT);
   if (sessionTheme) await context.addInitScript(`try { sessionStorage.setItem("mdjr-theme", ${JSON.stringify(sessionTheme)}); } catch {}`);
+  // Routes run newest first; route.fallback() hands a request to the previous one.
+  if (site !== "local") {
+    await context.route(`${base}/**`, async (route) => {
+      const url = new URL(route.request().url());
+      const file = url.pathname.slice(new URL(base).pathname.replace(/\/$/, "").length) || "/";
+      return route.fulfill({ response: await route.fetch({ url: `${server.origin}${file}${url.search}` }) });
+    });
+  }
   await context.route(/\/app\.js(\?|$)/, (route) => {
     if (build === "legacy") return route.fulfill({ status: 200, contentType: "text/javascript; charset=utf-8", body: LEGACY_CODE });
-    return route.continue();
+    return route.fallback();
   });
   await context.route("https://telegram.org/js/telegram-web-app.js", (route) =>
     route.fulfill({ status: 200, contentType: "text/javascript", body: telegramScript(tg) }),
   );
-  const cors = { "access-control-allow-origin": "*", "access-control-allow-headers": "content-type, x-telegram-init-data, x-filename", "access-control-allow-methods": "GET, POST, OPTIONS" };
-  await context.route(`${API}/**`, async (route) => {
+  let opened = false;
+  await context.route("**/*", async (route) => {
     const request = route.request();
     const url = new URL(request.url());
-    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
-    if (request.isNavigationRequest()) {
+    if (request.isNavigationRequest() && request.frame().parentFrame() === null) {
+      if (!opened) {
+        opened = true;
+        return route.fallback();
+      }
       navigations.push(request.url());
       return route.fulfill({ status: 200, contentType: "text/html", body: "<!doctype html><title>moved</title>" });
     }
+    if (url.origin !== API || !API_PATH.test(url.pathname)) return route.fallback();
+    const cors = { "access-control-allow-origin": request.headers().origin || "*", "access-control-allow-headers": "content-type, x-telegram-init-data, x-filename", "access-control-allow-methods": "GET, POST, OPTIONS" };
+    if (request.method() === "OPTIONS") return route.fulfill({ status: 204, headers: cors });
     const headers = request.headers();
     const raw = request.postDataBuffer();
     const isJson = (headers["content-type"] || "").includes("json");
@@ -144,19 +175,28 @@ export async function openApp(browser, server, build, options = {}) {
       filename: headers["x-filename"] || null,
       body: raw ? (isJson ? JSON.parse(raw.toString("utf8")) : raw) : null,
     });
-    if (url.pathname === "/health") return route.fulfill({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify(health) });
+    if (site === "local") return route.abort("accessdenied");
+    if (url.pathname === "/health") {
+      if (typeof health === "function") return health(route, cors);
+      return route.fulfill({ status: 200, contentType: "application/json", headers: cors, body: JSON.stringify(health) });
+    }
     const reply = api(request.method(), url.pathname, raw && isJson ? JSON.parse(raw.toString("utf8")) : null) || { status: 404, json: { ok: false } };
     return route.fulfill({ status: reply.status, contentType: "application/json", headers: cors, body: JSON.stringify(reply.json) });
   });
   const page = await context.newPage();
   const errors = [];
+  const local = []; // API calls the page makes to the local server (site "local")
   page.on("pageerror", (err) => errors.push(err.message));
-  await page.goto(`${server.origin}/?v=${APP_VERSION}${query}`);
+  page.on("requestfinished", async (request) => {
+    const url = new URL(request.url());
+    if (url.origin === server.origin && API_PATH.test(url.pathname)) local.push(`${request.method()} ${url.pathname} ${(await request.response())?.status()}`);
+  });
+  await page.goto(pageUrl);
   if (waitForApp) {
     await page.waitForSelector(".fn-row textarea");
     await settle(page);
   }
-  return { page, context, requests, navigations, errors, close: () => context.close() };
+  return { page, context, requests, local, navigations, errors, pageUrl, close: () => context.close() };
 }
 
 // Waits for fonts, pending API replies and a few frames of the plane animation.

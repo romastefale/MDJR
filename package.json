@@ -1,5 +1,6 @@
 {
   "name": "mdjr",
+  "version": "40",
   "private": true,
   "type": "module",
   "engines": {
