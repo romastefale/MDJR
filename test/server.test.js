@@ -235,16 +235,17 @@ describe("Private chat", () => {
     assert.equal((await say(ctx, "/help@OtherBot")).length, 0);
   });
 
-  // https://core.telegram.org/bots/features#command-scopes ("they may contain commands that don't exist
-  // at all in your bot. Your backend should always verify that received commands are valid")
-  // Decisão do Pi: comando desconhecido e texto solto recebem uma resposta útil
-  test("unknown commands and plain text get a reply that points to /help", async () => {
-    const [unknown] = await say(ctx, "/nope");
-    const [plain] = await say(ctx, "hello");
-    const [help] = await say(ctx, "/help");
-    for (const sent of [unknown, plain]) {
-      assert.ok(textOf(sent).includes("/help"));
-      assert.notEqual(textOf(sent), textOf(help));
+  // Decisão do Pi (2026-10-03): comando desconhecido e texto solto são ignorados, sem resposta
+  // ("ele tem os comandos dele já": /start, /help, /draft) — https://core.telegram.org/bots/features#command-scopes
+  // ("they may contain commands that don't exist at all in your bot. Your backend should always verify
+  // that received commands are valid")
+  test("unknown commands and plain text are ignored silently; the bot's own commands still answer", async () => {
+    for (const text of ["/nope", "/settings", "/start2", "hello", "/ start", "  "]) {
+      assert.deepEqual(await say(ctx, text), [], `"${text}" got a reply`);
+    }
+    assert.deepEqual(await say(ctx, "olá", { from: { language_code: "pt-br" } }), []);
+    for (const text of ["/start", "/help", "/draft", "/HELP", "/start payload"]) {
+      assert.equal((await say(ctx, text)).length, 1, `"${text}" got no reply`);
     }
     ctx.fake.assertConforms();
   });
@@ -291,8 +292,9 @@ describe("Private chat", () => {
 
 // =====================================================================================
 describe("Delivery problems", () => {
-  // Decisão do Pi: rich message com fallback para mensagem comum com botão do Mini App
-  // https://core.telegram.org/bots/api#sendmessage, https://core.telegram.org/bots/api#inlinekeyboardbutton (web_app)
+  // Escolha técnica do PR #1: sendRichMessage só existe desde a Bot API 10.1
+  // (https://core.telegram.org/bots/api#sendrichmessage); se ele for recusado, a mesma resposta vai por
+  // https://core.telegram.org/bots/api#sendmessage com https://core.telegram.org/bots/api#inlinekeyboardbutton (web_app)
   test("when sendRichMessage is refused, the same reply goes out as sendMessage with an inline web_app button", async () => {
     const ctx = await boot();
     try {
@@ -475,7 +477,8 @@ describe("Start modes", () => {
   });
 
   // https://core.telegram.org/bots/api#setwebhook ("HTTPS URL"), https://core.telegram.org/bots/api#webappinfo
-  // ("An HTTPS URL of a Web App") — Decisão do Pi: polling só local, nunca em silêncio em produção
+  // ("An HTTPS URL of a Web App") — Decisão do Pi: polling só para desenvolvimento local (USE_POLLING=1)
+  // — Escolha técnica do PR #2: sem URL pública, avisar no log em vez de ficar mudo
   test("without a public HTTPS URL nothing receives updates, the log says how to run locally, Mini App links stay HTTPS", async () => {
     for (const env of [{}, { PUBLIC_URL: "http://localhost:3000" }]) {
       const ctx = await boot({ env });
@@ -492,7 +495,9 @@ describe("Start modes", () => {
     }
   });
 
-  // Decisão do Pi: nenhuma variável nova no Railway (the app's origin is https://mdjr.up.railway.app)
+  // https://docs.railway.com/reference/variables#railway-provided-variables (RAILWAY_PUBLIC_DOMAIN: "The
+  // public service or customer domain"; RAILWAY_ENVIRONMENT_ID is always provided) — Escolha técnica do
+  // PR #2: sem domínio informado, usar a origem que o Mini App já usa (https://mdjr.up.railway.app)
   test("on Railway without PUBLIC_URL the webhook uses RAILWAY_PUBLIC_DOMAIN, else the app's Railway origin", async () => {
     for (const [env, origin] of [[{ RAILWAY_PUBLIC_DOMAIN: "other.up.railway.app" }, "https://other.up.railway.app"], [{ RAILWAY_ENVIRONMENT_ID: "e1" }, PUBLIC]]) {
       const ctx = await boot({ env });
@@ -506,8 +511,9 @@ describe("Start modes", () => {
     }
   });
 
-  // Decisão do Pi: nenhuma variável nova no Railway — https://core.telegram.org/bots/api#setwebhook
-  // (secret_token: "1-256 characters. Only characters A-Z, a-z, 0-9, _ and - are allowed")
+  // https://core.telegram.org/bots/api#setwebhook (secret_token: "1-256 characters. Only characters A-Z,
+  // a-z, 0-9, _ and - are allowed") — Escolha técnica do PR #2: o segredo é derivado do token, então é o
+  // mesmo a cada deploy sem configurar nada, e WEBHOOK_SECRET (opcional) tem prioridade se for válido
   test("the webhook secret survives restarts without configuration, differs per token, and WEBHOOK_SECRET overrides it", async () => {
     const secretOf = async (env, token = TOKEN) => {
       const fake = createFakeBotApi({ token });
@@ -543,7 +549,9 @@ describe("Start modes", () => {
     }
   });
 
-  // Decisão do Pi: sem BOT_TOKEN o servidor falha fechado e avisa no log
+  // https://core.telegram.org/bots/api#making-requests (the token is part of every request URL: without it
+  // there is no Bot API) and https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app
+  // (initData is checked with a key derived from the token: without it nothing can be verified)
   test("without BOT_TOKEN no Bot API call is made and the log says what is missing", async () => {
     const ctx = await boot({ token: "", env: { RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" } });
     try {
@@ -557,8 +565,9 @@ describe("Start modes", () => {
     }
   });
 
-  // Decisão do Pi: webhook no lugar do polling — a deploy (SIGTERM → stop()) finishes the updates in
-  // progress and keeps the webhook registered for the next instance
+  // https://core.telegram.org/bots/api#deletewebhook ("Use this method to remove webhook integration if
+  // you decide to switch back to getUpdates") — Escolha técnica do PR #2: no deploy (SIGTERM → stop()) o
+  // servidor termina os updates em andamento e não apaga o webhook, que a nova instância atende no mesmo endereço
   test("stop() waits for in-flight updates, closes the server and leaves the webhook registered", async () => {
     const ctx = await boot();
     let release;
@@ -605,18 +614,17 @@ describe("Mini App API", () => {
     assert.equal(await status(signInit({ auth_date: now(), chat: JSON.stringify({ id: -100, type: "group" }) })), 401, "no user");
   });
 
-  // Decisão do Pi: cada usuário guarda até 5 rascunhos (README: "até **5 rascunhos**, e o comando
-  // /draft mostra a lista") — https://core.telegram.org/bots/api#inputrichblockbuttons (1-8 buttons)
-  test("drafts are per user, capped at 5, and /draft lists them as buttons that open each one", async () => {
+  // Decisão do Pi (2026-10-03): até 8 rascunhos por usuário — https://core.telegram.org/bots/api#inputrichblockbuttons
+  test("drafts are per user, capped at 8, and /draft lists them as buttons that open each one", async () => {
     const init = initFor({ id: 42 });
     const ids = [];
-    for (let i = 1; i <= 6; i++) {
+    for (let i = 1; i <= 9; i++) {
       const res = await fetch(`${ctx.base}/drafts`, json(init, { name: `Beat ${i}`, rows: [{ y: "sin(t)", on: true }] }));
       assert.equal(res.status, 200);
       ids.push((await res.json()).id);
     }
     const list = await (await fetch(`${ctx.base}/drafts`, { headers: { "x-telegram-init-data": init } })).json();
-    assert.equal(list.length, 5);
+    assert.equal(list.length, 8);
     const one = await (await fetch(`${ctx.base}/drafts/${list[0].id}`, { headers: { "x-telegram-init-data": init } })).json();
     assert.equal(one.rows[0].y, "sin(t)");
     assert.deepEqual(await (await fetch(`${ctx.base}/drafts`, { headers: { "x-telegram-init-data": initFor({ id: 43 }) } })).json(), []);
@@ -632,19 +640,38 @@ describe("Mini App API", () => {
     ctx.fake.assertConforms();
   });
 
-  // Decisão do Pi (PR #1, revisado e mergeado): rascunhos de até 100 KB, também sem content-length
-  test("/drafts refuses bodies over 100 KB, declared or chunked", async () => {
+  // Decisão do Pi (2026-10-03): o limite de tamanho acompanha o tamanho real de um rascunho. The largest
+  // draft the app can send (what web/app.js POSTs: name, 5 rows of { id, y, on, color, bpm, vol }, seconds,
+  // the knob object; 500-character formulas, every character a 3-byte UTF-8 symbol, every number at its
+  // longest) is accepted; bodies far beyond any draft are refused, declared or chunked.
+  test("/drafts accepts the largest real draft and refuses bodies far beyond it", async () => {
     const init = initFor({ id: 42 });
-    const big = await fetch(`${ctx.base}/drafts/progress`, json(init, { name: "x".repeat(120_000) }));
+    const F = -0.12345678901234568;
+    const symbol = "\u2212"; // "−", 3 bytes in UTF-8
+    const largest = {
+      name: symbol.repeat(32),
+      rows: Array.from({ length: 5 }, () => ({ id: Number.MAX_SAFE_INTEGER, y: symbol.repeat(500), on: false, color: "#bf5af2", bpm: 180, vol: F })),
+      seconds: 1200,
+      patch: { mode: "custom", presetId: "percussion_kick", formula: "sin(2*PI*(220*y)*t)*exp(-6*z*((t*(bpm/60)*x)%1))", engine: "raw", x: F, y: F, z: F, w: F, a: F, b: F, g: F, d: F, bpm: 180, vol: F, lpf: 16000, res: F, pan: F, seconds: 1200, muted: true },
+    };
+    const saved = await fetch(`${ctx.base}/drafts`, json(init, largest));
+    assert.equal(saved.status, 200);
+    const { id } = await saved.json();
+    const back = await (await fetch(`${ctx.base}/drafts/${id}`, { headers: { "x-telegram-init-data": init } })).json();
+    assert.equal(back.rows.length, 5);
+    assert.equal(back.rows[0].y, symbol.repeat(500));
+
+    const tooBig = Buffer.byteLength(JSON.stringify(largest)) * 3;
+    const big = await fetch(`${ctx.base}/drafts/progress`, json(init, { ...largest, name: "x".repeat(tooBig) }));
     assert.equal(big.status, 413);
-    const chunked = await rawRequest(ctx.base, { method: "POST", path: "/drafts/progress", headers: { "x-telegram-init-data": init, "transfer-encoding": "chunked" }, chunks: Array(12).fill("x".repeat(10_000)), body: "" });
+    const chunked = await rawRequest(ctx.base, { method: "POST", path: "/drafts/progress", headers: { "x-telegram-init-data": init, "transfer-encoding": "chunked" }, chunks: Array(6).fill("x".repeat(Math.ceil(tooBig / 6))), body: "" });
     assert.equal(chunked.statusCode, 413);
   });
 
   // https://core.telegram.org/bots/api#sendaudio (multipart audio, title, performer, duration "in
   // seconds", caption 0-1024), https://core.telegram.org/bots/api#sendchataction (documented actions),
-  // https://core.telegram.org/bots/features#language-support — Decisão do Pi: o MP3 vai para o chat
-  // privado do usuário, nunca para um grupo. The filename format is the app's (web/app.js, unchanged).
+  // https://core.telegram.org/bots/features#language-support — Decisão do Pi: bot só no chat privado (o MP3
+  // vai para o chat privado do usuário, nunca para um grupo). The filename format is the app's (web/app.js, unchanged).
   test("/song uploads the MP3 to the user's private chat with a documented chat action and localized caption", async () => {
     const upload = async (user) => {
       ctx.fake.clear();
@@ -689,7 +716,8 @@ describe("Mini App API", () => {
     assert.equal(ctx.fake.calls.length, 0);
   });
 
-  // Decisão do Pi: web/app.js não muda — the app shows "failed" when /song is not 2XX
+  // Contrato do web/app.js (que este PR não altera): the app shows "sent" only when /song answers 2XX
+  // (`lt.ok?"sent":"failed"`), so a Telegram refusal must not look like success
   test("/song answers non-2XX when Telegram refuses the audio", async () => {
     ctx.fake.on("sendAudio", () => ({ ok: false, error_code: 403, description: "Forbidden: bot was blocked by the user" }));
     try {
@@ -700,8 +728,9 @@ describe("Mini App API", () => {
     }
   });
 
-  // Decisão do Pi (PR #1): CORS só para as origens do app (GitHub Pages e Railway); /health não
-  // expõe nada do bot
+  // https://fetch.spec.whatwg.org/#http-cors-protocol (a site can only read a cross-origin response the
+  // server allows) — Escolha técnica do PR #1: liberar só as origens do app (GitHub Pages e Railway); o
+  // /health não expõe nada do bot
   test("/health and preflights send CORS only to the app's origins and reveal no bot details", async () => {
     const res = await fetch(`${ctx.base}/health`, { headers: { origin: GH } });
     assert.equal(res.headers.get("access-control-allow-origin"), GH);
@@ -719,7 +748,8 @@ describe("Mini App API", () => {
     assert.match(ok.headers.get("access-control-allow-headers"), /x-filename/);
   });
 
-  // Decisão do Pi: o PWA continua funcionando (app e manifest servidos) e nada fora de web/ é servido
+  // Decisão do Pi (2026-10-03): o app também funciona no navegador (PWA): app e manifest servidos —
+  // Escolha técnica: nada fora de web/ é servido
   test("the PWA files are served and paths outside web/ are not", async () => {
     const index = await fetch(`${ctx.base}/`);
     assert.equal(index.status, 200);
@@ -730,7 +760,9 @@ describe("Mini App API", () => {
     }
   });
 
-  // Decisão do Pi: sem BOT_TOKEN o servidor falha fechado (PR #1), mesmo com initData assinado com chave vazia
+  // https://core.telegram.org/bots/webapps#validating-data-received-via-the-mini-app: the check key is
+  // HMAC_SHA256(<bot_token>, "WebAppData"); without a token nothing can be validated, so the routes that
+  // need a verified user refuse even initData "signed" with an empty token
   test("without BOT_TOKEN the Mini App routes answer 503 and /health stays up", async () => {
     const off = await boot({ token: "", start: false });
     try {

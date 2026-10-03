@@ -21,9 +21,9 @@ Monte uma faixa escrevendo matemática. Cada linha é uma fórmula `y = f(x)`: e
 
 ## No Telegram
 
-Abra o Math DJ pelo bot e o app retoma de onde você parou. Você pode guardar até **5 rascunhos**, e o comando `/draft` mostra a lista. O `/help` explica como funciona.
+Abra o Math DJ pelo bot e o app retoma de onde você parou. Você pode guardar até **8 rascunhos**, e o comando `/draft` mostra a lista. O `/help` explica como funciona.
 
-O bot funciona só no **chat privado**: em grupos e canais ele não responde e sai. Os textos aparecem em português para quem usa o Telegram em português e em inglês para os demais.
+O bot funciona só no **chat privado**: em grupos e canais ele não responde e sai. No privado ele responde só aos comandos dele (`/start`, `/help` e `/draft`); comando desconhecido e texto solto são ignorados. Os textos aparecem em português para quem usa o Telegram em português e em inglês para os demais.
 
 ## Para publicar
 
@@ -36,6 +36,10 @@ O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API 
 - `WEBHOOK_SECRET` (opcional): o segredo do webhook, de 1 a 256 caracteres `A-Z a-z 0-9 _ -`. Sem ela, o servidor deriva um segredo fixo a partir do token, que não muda entre deploys
 - `USE_POLLING=1` (só para desenvolvimento local): apaga o webhook e recebe as mensagens por `getUpdates`
 - Monte um volume em `/mdjr-volume` para guardar o progresso e os rascunhos
+
+### Tamanho de um rascunho
+
+O app manda para `/drafts` o nome (a primeira fórmula, até 32 caracteres), as 5 linhas (`id`, `y`, `on`, `color`, `bpm`, `vol`), a duração e os botões de som. O servidor guarda até 500 caracteres de cada fórmula. Com tudo no tamanho máximo, um rascunho tem cerca de 3,5 KB com fórmulas em ASCII e 8,6 KB no pior caso, quando todo caractere é um símbolo de 3 bytes em UTF-8. Por isso o limite do corpo é de **10 KB**, uns 19% acima desse pior caso. Acima disso, a resposta é 413.
 
 No Railway basta o `BOT_TOKEN` e o volume. Não é preciso criar outra variável.
 

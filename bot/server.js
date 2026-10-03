@@ -8,12 +8,27 @@ import { createLogger } from "./log.js";
 import { LANGS, pickLang, texts } from "./i18n.js";
 
 const MAX_SONG = 22 * 1024 * 1024;
-const MAX_DRAFT = 100_000;
+// Drafts (Decisão do Pi, 2026-10-03): up to 8 per user, and a body limit sized to a real draft.
+// web/app.js POSTs { name, rows, seconds, patch } to /drafts:
+//   name    first formula cut to 32 characters
+//   rows    5 rows of { id, y, on, color, bpm, vol }; y is the formula. The app has no length cap
+//           on formulas; this server keeps at most 500 characters of each (projectFrom).
+//   seconds one of 30…1200
+//   patch   the knob object: the app's defaults (mode, presetId, formula, engine, x, y, z, w, a, b,
+//           g, d, bpm, vol, lpf, res, pan, seconds) plus muted
+// Worst case, measured with JSON.stringify and every number at its longest text form
+// (-0.12345678901234568, Number.MAX_SAFE_INTEGER ids):
+//   ASCII formulas and name                              3,514 bytes  (realistic maximum)
+//   every character a 3-byte UTF-8 symbol (− ≤ ·)        8,578 bytes  (absolute worst case)
+// Limit: 10 KB, about 19% above the absolute worst case.
+const MAX_DRAFTS = 8;
+const MAX_DRAFT = 10 * 1024;
 const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
 const APP_VERSION = "36"; // keep in sync with web/index.html (?v=) and the app bundle
 const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
 const KNOWN_ORIGINS = ["https://romastefale.github.io", DEFAULT_ORIGIN];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
+const COMMANDS = new Set(["start", "help", "draft"]);
 const MEMBER_STATUSES = new Set(["creator", "administrator", "member", "restricted"]);
 const SECRET_CHARSET = /^[A-Za-z0-9_-]{1,256}$/; // setWebhook secret_token rules
 
@@ -233,7 +248,7 @@ export function createApp({
         }
       }
       ranked.sort((a, b) => b.updated - a.updated);
-      for (const item of ranked.slice(5)) fs.unlinkSync(path.join(dir, item.name));
+      for (const item of ranked.slice(MAX_DRAFTS)) fs.unlinkSync(path.join(dir, item.name));
     }
     return { id: project.id, name: project.name, updated: project.updated };
   }
@@ -265,7 +280,7 @@ export function createApp({
       })
       .filter(Boolean)
       .sort((a, b) => b.updated - a.updated)
-      .slice(0, 5);
+      .slice(0, MAX_DRAFTS);
   }
 
   // ---------- bot side (private chats only) ----------
@@ -282,8 +297,6 @@ export function createApp({
     const open = { label: tx.open, url: appUrl(origin) };
     if (kind === "start") return { title: tx.name, paragraphs: [tx.tagline], buttons: [open] };
     if (kind === "help") return { title: tx.name, paragraphs: [tx.helpIntro, tx.helpSong], list: tx.helpCommands, buttons: [open] };
-    if (kind === "unknown") return { title: tx.name, paragraphs: [tx.unknownCommand], buttons: [open] };
-    if (kind === "text") return { title: tx.name, paragraphs: [tx.plainText], buttons: [open] };
     if (kind === "draft") {
       const drafts = listDrafts(userId);
       return drafts.length
@@ -307,15 +320,11 @@ export function createApp({
       if (message.chat.type === "group" || message.chat.type === "supergroup") await leave(message.chat);
       return;
     }
-    const lang = pickLang(from.language_code);
+    // Only the bot's own commands get a reply. Unknown commands and plain text are ignored
+    // (Decisão do Pi, 2026-10-03: "ele tem os comandos dele já" — /start, /help, /draft).
     const command = parseCommand(message);
-    if (command) {
-      if (!isForThisBot(command, state.username)) return;
-      const kind = ["start", "help", "draft"].includes(command.name) ? command.name : "unknown";
-      await send(message, replyFor(kind, lang, from.id));
-      return;
-    }
-    if (typeof message.text === "string" && message.text.trim()) await send(message, replyFor("text", lang, from.id));
+    if (!command || !isForThisBot(command, state.username) || !COMMANDS.has(command.name)) return;
+    await send(message, replyFor(command.name, pickLang(from.language_code), from.id));
   }
 
   // https://core.telegram.org/bots/api#chatmemberupdated — the bot's own membership changes.
