@@ -34,7 +34,7 @@ const MAX_FORMULA = 500;
 const PATCH_STRINGS = { mode: 40, presetId: 40, engine: 40, formula: MAX_FORMULA };
 const PATCH_NUMBERS = ["x", "y", "z", "w", "a", "b", "g", "d", "bpm", "vol", "lpf", "res", "pan", "seconds"];
 const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
-const APP_VERSION = "37"; // keep in sync with web/index.html (?v=) and the app bundle
+const APP_VERSION = "39"; // keep in sync with web/index.html (?v=) and the app bundle
 const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
 const KNOWN_ORIGINS = ["https://romastefale.github.io", DEFAULT_ORIGIN];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
