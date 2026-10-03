@@ -164,9 +164,12 @@ button { cursor: pointer; }
 .fn-stack { min-width: 0; display: flex; flex-direction: column; gap: 7px; }
 .fn-slot { position: relative; }
 .fn-slot[data-open="1"] { z-index: 6; }
-.fn-row { --cap: 23px; display: flex; align-items: center; gap: 7px; width: 100%; margin-inline: auto; height: 54px; padding: 7px calc(var(--cap) + 16px) 7px 46px; border-radius: 23px; overflow: hidden; }
+.fn-row { --cap: 23px; position: relative; display: flex; align-items: center; gap: 7px; width: 100%; margin-inline: auto; height: 54px; padding: 7px calc(var(--cap) + 16px) 7px 46px; border-radius: 23px; overflow: hidden; }
 .fn-row[data-off="1"] { opacity: 0.4; }
 .fn-row[data-invalid="1"] { outline: 2px solid #ff3b30; outline-offset: -2px; }
+.fn-err, .fn-voice { position: absolute; left: 58px; bottom: 3px; z-index: 4; font: 600 9px/1 system-ui, sans-serif; letter-spacing: 0.03em; pointer-events: none; }
+.fn-err { right: 36px; color: #ff3b30; text-align: right; }
+.fn-voice { opacity: 0.72; }
 .swatch { width: 4px; height: 40px; flex: none; border: 0; border-radius: 2px; padding: 0; display: block; }
 .fn-row span { font-weight: 600; font-size: 11px; }
 .fn-row textarea {

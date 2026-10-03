@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=32`;
+  return `${publicOrigin()}/?v=33`;
 }
 
 async function api(method, body) {
@@ -110,11 +110,12 @@ function projectFrom(body, id) {
     color: String(row?.color || "").slice(0, 40),
     bpm: Math.min(180, Math.max(80, Math.round(Number(row?.bpm) || 120))),
     vol: Math.min(1, Math.max(0, Number.isFinite(Number(row?.vol)) ? Number(row.vol) : 0.75)),
+    voice: String(row?.voice || "").slice(0, 40),
   })) : [];
   const updated = Date.now();
   return {
     id,
-    name: id === "progress" ? "Progress" : when(updated),
+    name: id === "progress" ? "Progress" : cleanName(body?.name),
     updated,
     seconds: Math.min(1200, Math.max(1, Number(body?.seconds) || 60)),
     patch: body?.patch && typeof body.patch === "object" ? body.patch : {},
@@ -130,15 +131,19 @@ function writeProject(userId, id, body) {
   const project = projectFrom(body, id);
   fs.writeFileSync(path.join(dir, file), JSON.stringify(project));
   if (id !== "progress") {
-    const extra = fs.readdirSync(dir)
-      .filter((name) => /^[a-f0-9]{8}\.json$/.test(name))
-      .map((name) => {
-        const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-        return { name, updated: Number(data.updated) || 0 };
-      })
-      .sort((a, b) => b.updated - a.updated)
-      .slice(12);
-    for (const item of extra) fs.unlinkSync(path.join(dir, item.name));
+    const ranked = [];
+    for (const name of fs.readdirSync(dir)) {
+      if (!/^[a-f0-9]{8}\.json$/.test(name)) continue;
+      let updated = 0;
+      try {
+        updated = Number(JSON.parse(fs.readFileSync(path.join(dir, name), "utf8")).updated) || 0;
+      } catch {
+        continue;
+      }
+      ranked.push({ name, updated });
+    }
+    ranked.sort((a, b) => b.updated - a.updated);
+    for (const item of ranked.slice(12)) fs.unlinkSync(path.join(dir, item.name));
   }
   return { id: project.id, name: project.name, updated: project.updated };
 }
@@ -163,7 +168,7 @@ function listDrafts(userId) {
     .map((name) => {
       try {
         const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
-        return { id: data.id, name: when(data.updated || Date.now()), updated: data.updated || 0 };
+        return { id: data.id, name: cleanName(data.name), updated: data.updated || 0 };
       } catch {
         return null;
       }
@@ -182,19 +187,9 @@ function htmlEscape(value) {
   });
 }
 
-function when(ms) {
-  return new Date(ms).toLocaleString("en", {
-    timeZone: "America/Sao_Paulo",
-    month: "short",
-    day: "numeric",
-    hour: "numeric",
-    minute: "2-digit",
-  });
-}
-
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=32&draft=${encodeURIComponent(draftId)}` : `${base}/?v=32`;
+  return draftId ? `${base}/?v=33&draft=${encodeURIComponent(draftId)}` : `${base}/?v=33`;
 }
 
 function linkButton(label, url) {
