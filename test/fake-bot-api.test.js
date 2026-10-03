@@ -19,7 +19,7 @@ const cmd = (command, description = "Something") => ({ command, description });
 const button = (extra) => ({ text: "Open", ...extra });
 const rich = (blocks, extra = {}) => ({ chat_id: 42, rich_message: { blocks, ...extra } });
 const para = (text) => ({ type: "paragraph", text });
-const app = { web_app: { url: "https://mdjr.up.railway.app/?v=36" } };
+const app = { web_app: { url: "https://mdjr.up.railway.app/?v=37" } };
 function audioForm(fields, file = new Blob([new Uint8Array([0xff, 0xfb, 0x90, 0x00])], { type: "audio/mpeg" }), name = "math-dj-1m00.mp3") {
   const form = new FormData();
   form.append("chat_id", "42");
