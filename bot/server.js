@@ -5,7 +5,6 @@ import path from "node:path";
 import { fileURLToPath } from "node:url";
 
 const TOKEN = process.env.BOT_TOKEN || "";
-const WEBAPP = (process.env.WEBAPP_URL || "https://romastefale.github.io/MDJR/").replace(/\/$/, "") + "/";
 const PORT = Number(process.env.PORT || 3000);
 const MAX_SONG = 22 * 1024 * 1024;
 const VOLUME = process.env.MDJR_VOLUME || "/mdjr-volume";
@@ -18,7 +17,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=34`;
+  return `${publicOrigin()}/?v=36`;
 }
 
 async function api(method, body) {
@@ -30,14 +29,6 @@ async function api(method, body) {
   const data = await res.json().catch(() => ({ ok: false, description: "json" }));
   if (!data.ok) console.error(method, data.description || data);
   return data;
-}
-
-function openKeyboard() {
-  return {
-    keyboard: [[{ text: "Open Math DJ", web_app: { url: launchUrl() } }]],
-    resize_keyboard: true,
-    is_persistent: true,
-  };
 }
 
 async function setup() {
@@ -110,7 +101,6 @@ function projectFrom(body, id) {
     color: String(row?.color || "").slice(0, 40),
     bpm: Math.min(180, Math.max(80, Math.round(Number(row?.bpm) || 120))),
     vol: Math.min(1, Math.max(0, Number.isFinite(Number(row?.vol)) ? Number(row.vol) : 0.75)),
-    voice: String(row?.voice || "").slice(0, 40),
   })) : [];
   const updated = Date.now();
   return {
@@ -178,18 +168,9 @@ function listDrafts(userId) {
     .slice(0, 5);
 }
 
-function htmlEscape(value) {
-  return String(value).replace(/[&<>"]/g, (ch) => {
-    if (ch === "&") return "&" + "amp;";
-    if (ch === "<") return "&" + "lt;";
-    if (ch === ">") return "&" + "gt;";
-    return "&" + "quot;";
-  });
-}
-
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=34&draft=${encodeURIComponent(draftId)}` : `${base}/?v=34`;
+  return draftId ? `${base}/?v=36&draft=${encodeURIComponent(draftId)}` : `${base}/?v=36`;
 }
 
 function linkButton(label, url) {
