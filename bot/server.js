@@ -4,6 +4,7 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTelegram } from "./telegram.js";
+import { createLogger } from "./log.js";
 import { LANGS, pickLang, texts } from "./i18n.js";
 
 const MAX_SONG = 22 * 1024 * 1024;
@@ -162,6 +163,8 @@ export function createApp({
   const origin = publicOrigin(env);
   const allowed = new Set([...KNOWN_ORIGINS, origin]);
   const secret = webhookSecret(token, env);
+  // Every log line from the app is redacted (token, webhook secret, token-shaped strings).
+  const logger = createLogger({ secrets: [token, secret, env.WEBHOOK_SECRET], sink: { error: log, log: info } });
   const state = { username: null, mode: "off", stopping: false };
   const leaving = new Set();
   const inflight = new Set();
@@ -330,7 +333,7 @@ export function createApp({
   function dispatch(update) {
     const job = Promise.resolve()
       .then(() => handleUpdate(update))
-      .catch((err) => log("update", err instanceof Error ? err.message : err))
+      .catch((err) => logger.error("update", err))
       .finally(() => inflight.delete(job));
     inflight.add(job);
     return job;
@@ -363,7 +366,7 @@ export function createApp({
       await telegram.call("setMyShortDescription", { short_description: tx.shortDescription, ...language });
     }
     await telegram.call("setChatMenuButton", { menu_button: { type: "web_app", text: "Math DJ", web_app: { url: appUrl(origin) } } });
-    info("mini app", appUrl(origin), "bot", `@${state.username}`);
+    logger.info("mini app", appUrl(origin), "bot", `@${state.username}`);
   }
 
   // Local development only (USE_POLLING=1). Production uses the webhook.
@@ -387,7 +390,7 @@ export function createApp({
   // USE_POLLING=1. Returns the mode ("webhook", "polling" or "off").
   async function start() {
     if (!token) {
-      log("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
+      logger.error("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
       return (state.mode = "off");
     }
     await setup();
@@ -395,17 +398,17 @@ export function createApp({
     if (env.USE_POLLING === "1") {
       // getUpdates does not work while a webhook is set; pending updates are kept.
       await telegram.call("deleteWebhook", {});
-      info("USE_POLLING=1: webhook removido, recebendo updates por getUpdates (só para desenvolvimento).");
+      logger.info("USE_POLLING=1: webhook removido, recebendo updates por getUpdates (só para desenvolvimento).");
       state.mode = "polling";
       state.polling = poll();
       return state.mode;
     }
     if (env.WEBHOOK_SECRET && !isValidSecret(env.WEBHOOK_SECRET)) {
-      log("WEBHOOK_SECRET inválido (use 1-256 caracteres A-Z a-z 0-9 _ -); usando o segredo derivado do token.");
+      logger.error("WEBHOOK_SECRET inválido (use 1-256 caracteres A-Z a-z 0-9 _ -); usando o segredo derivado do token.");
     }
     const params = webhookParams(token, env);
     if (!params) {
-      log(
+      logger.error(
         "Sem URL pública HTTPS (PUBLIC_URL ou RAILWAY_PUBLIC_DOMAIN): o webhook não foi configurado e o bot não recebe mensagens. " +
           "Para desenvolvimento local, rode com USE_POLLING=1.",
       );
@@ -414,7 +417,8 @@ export function createApp({
     for (let delay = 2000; !state.stopping; delay = Math.min(delay * 2, 60000)) {
       const done = await telegram.call("setWebhook", params);
       if (done.ok) {
-        info("webhook", params.url);
+        // Only the public endpoint; never the secret_token or the rest of the payload.
+        logger.info("webhook", params.url);
         return (state.mode = "webhook");
       }
       await wait(delay);
@@ -622,13 +626,13 @@ export function createApp({
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       res.end("not found");
     } catch (err) {
-      log("http", err instanceof Error ? err.message : err);
+      logger.error("http", err);
       if (!res.headersSent) json(res, 500, { ok: false });
       else res.end();
     }
   });
 
-  return { server, handleUpdate, dispatch, idle, setup, start, stop, state };
+  return { server, handleUpdate, dispatch, idle, setup, start, stop, state, logger };
 }
 
 function isEntryPoint() {
@@ -642,17 +646,33 @@ function isEntryPoint() {
 
 const isMain = isEntryPoint();
 
+// Last-resort handler for crashes: logs the (redacted) stack instead of Node's raw output.
+export function crashHandler(logger, exit = (code) => process.exit(code)) {
+  return (kind) => (err) => {
+    logger.crash(kind, err);
+    exit(1);
+  };
+}
+
 if (isMain) {
   const token = process.env.BOT_TOKEN || "";
   const port = Number(process.env.PORT || 3000);
+  const logger = createLogger({
+    secrets: [token, webhookSecret(token, process.env), process.env.WEBHOOK_SECRET],
+  });
+  const onCrash = crashHandler(logger);
+  process.on("uncaughtException", onCrash("uncaughtException"));
+  process.on("unhandledRejection", onCrash("unhandledRejection"));
   const app = createApp({
     token,
-    telegram: createTelegram(token),
+    telegram: createTelegram(token, { log: logger.error }),
     volume: process.env.MDJR_VOLUME || "/mdjr-volume",
+    log: logger.error,
+    info: logger.info,
   });
   app.server.listen(port, "0.0.0.0", () => {
-    console.log(`mdjr-bot na porta ${port}`);
-    app.start().catch((err) => console.error("start", err instanceof Error ? err.message : err));
+    logger.info(`mdjr-bot na porta ${app.server.address().port}`);
+    app.start().catch((err) => logger.error("start", err));
   });
 
   // Graceful shutdown: stop accepting requests and let in-flight updates finish (max 8 s).
@@ -661,7 +681,7 @@ if (isMain) {
   const shutdown = (signal) => {
     if (closing) return;
     closing = true;
-    console.log(`${signal}: encerrando`);
+    logger.info(`${signal}: encerrando`);
     setTimeout(() => process.exit(0), 8000).unref();
     app.stop().finally(() => process.exit(0));
   };

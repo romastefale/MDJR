@@ -154,7 +154,7 @@ describe("telegram client", () => {
     const waits = [];
     const logs = [];
     let n = 0;
-    const tg = createTelegram("t", {
+    const tg = createTelegram(TOKEN, {
       sleep: async (ms) => waits.push(ms),
       log: (m) => logs.push(m),
       fetch: async () => ({
@@ -168,7 +168,7 @@ describe("telegram client", () => {
     assert.deepEqual(waits, [2000]);
     assert.equal(logs.length, 0);
 
-    const failing = createTelegram("t", {
+    const failing = createTelegram(TOKEN, {
       log: (m) => logs.push(m),
       fetch: async () => ({ status: 400, json: async () => ({ ok: false, error_code: 400, description: "Bad Request" }) }),
     });
@@ -177,8 +177,8 @@ describe("telegram client", () => {
   });
 
   test("network errors become a failed response instead of throwing", async () => {
-    const tg = createTelegram("t", { log: () => {}, fetch: async () => { throw new Error("down"); } });
-    assert.deepEqual(await tg.call("getMe"), { ok: false, description: "down" });
+    const tg = createTelegram(TOKEN, { log: () => {}, fetch: async () => { throw new Error("down"); } });
+    assert.deepEqual(await tg.call("getMe"), { ok: false, description: "Error: down" });
   });
 });
 

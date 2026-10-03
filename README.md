@@ -52,6 +52,16 @@ No `SIGTERM` (deploy novo), o servidor para de aceitar conexões, espera as mens
 
 Se o servidor não encontrar um endereço público HTTPS (por exemplo, rodando no seu computador), ele avisa no log e não recebe mensagens. Para testar o bot localmente com um token de teste, rode `USE_POLLING=1 BOT_TOKEN=... npm start`. Isso apaga o webhook desse bot, então use um bot de teste, não o de produção.
 
+### Logs
+
+Os logs nunca mostram o `BOT_TOKEN` nem o segredo do webhook, nem em parte. Todas as linhas passam por `bot/log.js`, que troca por `[redacted]`:
+
+- o token e o segredo, inclusive codificados em URL;
+- qualquer trecho deles com 8 caracteres ou mais;
+- qualquer `bot<números>:<texto>` (o formato das URLs da Bot API).
+
+Erros mostram a mensagem e a causa, mas nunca a URL completa da requisição, os cabeçalhos ou o conteúdo do `setWebhook`. Falhas que derrubam o processo também passam pela mesma limpeza.
+
 ### Testes
 
 `npm test` roda os testes com `node:test`, sem dependências, sem token e sem falar com o Telegram. `npm run check` confere a sintaxe.
