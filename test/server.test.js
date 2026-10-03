@@ -6,13 +6,19 @@ import os from "node:os";
 import http from "node:http";
 import path from "node:path";
 import {
+  ALLOWED_UPDATES,
+  WEBHOOK_PATH,
   createApp,
   isForThisBot,
   parseCommand,
   plainMessage,
   richBlocks,
+  sameSecret,
   songDuration,
   validateInitData,
+  webhookOrigin,
+  webhookParams,
+  webhookSecret,
 } from "../bot/server.js";
 import { createTelegram } from "../bot/telegram.js";
 import { pickLang, texts } from "../bot/i18n.js";
@@ -50,14 +56,14 @@ function fakeTelegram(overrides = {}) {
 
 async function startApp(options) {
   const volume = fs.mkdtempSync(path.join(os.tmpdir(), "mdjr-test-"));
-  const app = createApp({ env: ENV, volume, log: () => {}, ...options });
+  const app = createApp({ env: ENV, volume, log: () => {}, info: () => {}, ...options });
   await new Promise((resolve) => app.server.listen(0, "127.0.0.1", resolve));
   const base = `http://127.0.0.1:${app.server.address().port}`;
   return {
     app,
     base,
     async close() {
-      await new Promise((resolve) => app.server.close(resolve));
+      if (app.server.listening) await new Promise((resolve) => app.server.close(resolve));
       fs.rmSync(volume, { recursive: true, force: true });
     },
   };
@@ -432,5 +438,283 @@ describe("HTTP routes", () => {
       assert.equal((await fetch(`${ctx.base}/manifest.webmanifest`)).headers.get("content-type"), "application/manifest+json");
       assert.equal((await fetch(`${ctx.base}/%2e%2e/package.json`)).status, 404);
     });
+  });
+});
+
+describe("webhook configuration", () => {
+  test("derived secret is stable, per token and inside the allowed charset", () => {
+    const a = webhookSecret(TOKEN, {});
+    assert.equal(a, webhookSecret(TOKEN, {}));
+    assert.match(a, /^[A-Za-z0-9_-]{1,256}$/);
+    assert.equal(a.length, 64);
+    assert.notEqual(a, webhookSecret("999:other", {}));
+    assert.ok(!a.includes(TOKEN.split(":")[1]), "secret does not contain the token");
+    assert.equal(webhookSecret("", {}), "");
+  });
+
+  test("WEBHOOK_SECRET is used when valid, ignored when invalid", () => {
+    assert.equal(webhookSecret(TOKEN, { WEBHOOK_SECRET: "my_Secret-1" }), "my_Secret-1");
+    assert.equal(webhookSecret(TOKEN, { WEBHOOK_SECRET: "bad secret!" }), webhookSecret(TOKEN, {}));
+    assert.equal(webhookSecret(TOKEN, { WEBHOOK_SECRET: "x".repeat(257) }), webhookSecret(TOKEN, {}));
+  });
+
+  test("sameSecret compares exactly", () => {
+    assert.equal(sameSecret("abc", "abc"), true);
+    assert.equal(sameSecret("abd", "abc"), false);
+    assert.equal(sameSecret("abcd", "abc"), false);
+    assert.equal(sameSecret(undefined, "abc"), false);
+    assert.equal(sameSecret("", ""), false);
+  });
+
+  test("webhookOrigin follows PUBLIC_URL / RAILWAY_PUBLIC_DOMAIN and is null locally", () => {
+    assert.equal(webhookOrigin({ PUBLIC_URL: "https://x.example/" }), "https://x.example");
+    assert.equal(webhookOrigin({ RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" }), "https://mdjr.up.railway.app");
+    assert.equal(webhookOrigin({ RAILWAY_ENVIRONMENT_ID: "e1" }), "https://mdjr.up.railway.app");
+    assert.equal(webhookOrigin({}), null);
+    assert.equal(webhookOrigin({ PUBLIC_URL: "http://localhost:3000" }), null, "webhooks need HTTPS");
+  });
+
+  test("setWebhook params: url, secret_token, allowed_updates, no drop_pending_updates", () => {
+    const params = webhookParams(TOKEN, { RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" });
+    assert.deepEqual(params, {
+      url: `https://mdjr.up.railway.app${WEBHOOK_PATH}`,
+      secret_token: webhookSecret(TOKEN, {}),
+      allowed_updates: ["message", "my_chat_member"],
+    });
+    assert.equal("drop_pending_updates" in params, false);
+    assert.deepEqual(ALLOWED_UPDATES, ["message", "my_chat_member"]);
+    assert.equal(webhookParams(TOKEN, {}), null);
+    assert.equal(webhookParams("", { RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" }), null);
+  });
+});
+
+describe("start()", () => {
+  test("sets the webhook (and never polls) when a public URL exists", async () => {
+    const tg = fakeTelegram();
+    const env = { RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" };
+    const ctx = await startApp({ token: TOKEN, telegram: tg, env });
+    try {
+      assert.equal(await ctx.app.start(), "webhook");
+      const [set] = tg.named("setWebhook");
+      assert.deepEqual(set.params, webhookParams(TOKEN, env));
+      assert.equal(tg.named("getUpdates").length, 0);
+      assert.equal(tg.named("deleteWebhook").length, 0);
+      assert.ok(tg.named("setMyCommands").length === 2, "PR #1 setup still runs");
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("retries setWebhook until it succeeds", async () => {
+    let n = 0;
+    const tg = fakeTelegram({ setWebhook: () => (++n === 1 ? { ok: false, error_code: 502 } : { ok: true, result: true }) });
+    const ctx = await startApp({ token: TOKEN, telegram: tg, env: { PUBLIC_URL: "https://mdjr.up.railway.app" } });
+    try {
+      // real timers: the first retry waits 2 s
+      assert.equal(await ctx.app.start(), "webhook");
+      assert.equal(tg.named("setWebhook").length, 2);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("without a public URL: no webhook, no silent polling, clear log", async () => {
+    const tg = fakeTelegram();
+    const logs = [];
+    const ctx = await startApp({ token: TOKEN, telegram: tg, env: {}, log: (...m) => logs.push(m.join(" ")) });
+    try {
+      assert.equal(await ctx.app.start(), "off");
+      assert.equal(tg.named("setWebhook").length, 0);
+      assert.equal(tg.named("getUpdates").length, 0);
+      assert.ok(logs.some((l) => l.includes("USE_POLLING=1")));
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("USE_POLLING=1 deletes the webhook first, then polls and handles updates", async () => {
+    let ctx;
+    let polls = 0;
+    const tg = fakeTelegram({
+      getUpdates: () => {
+        polls += 1;
+        if (polls === 1) return { ok: true, result: [{ update_id: 10, message: privateMsg("/help") }] };
+        ctx.app.state.stopping = true;
+        return { ok: true, result: [] };
+      },
+    });
+    ctx = await startApp({ token: TOKEN, telegram: tg, env: { USE_POLLING: "1" } });
+    try {
+      assert.equal(await ctx.app.start(), "polling");
+      await ctx.app.state.polling;
+      const order = tg.calls.map((c) => c.method).filter((m) => ["deleteWebhook", "getUpdates"].includes(m));
+      assert.deepEqual(order, ["deleteWebhook", "getUpdates", "getUpdates"]);
+      assert.deepEqual(tg.named("deleteWebhook")[0].params, {});
+      assert.deepEqual(tg.named("getUpdates")[0].params.allowed_updates, ALLOWED_UPDATES);
+      assert.equal(tg.named("sendRichMessage").length, 1);
+      assert.equal(tg.named("setWebhook").length, 0);
+    } finally {
+      await ctx.close();
+    }
+  });
+
+  test("without BOT_TOKEN nothing is called", async () => {
+    const tg = fakeTelegram();
+    const ctx = await startApp({ token: "", telegram: tg, env: { RAILWAY_PUBLIC_DOMAIN: "mdjr.up.railway.app" } });
+    try {
+      assert.equal(await ctx.app.start(), "off");
+      assert.equal(tg.calls.length, 0);
+    } finally {
+      await ctx.close();
+    }
+  });
+});
+
+describe("webhook route", () => {
+  let ctx;
+  let tg;
+  let release;
+  const SECRET = webhookSecret(TOKEN, ENV);
+  const post = (body, headers = {}) => fetch(`${ctx.base}${WEBHOOK_PATH}`, {
+    method: "POST",
+    headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": SECRET, ...headers },
+    body: typeof body === "string" ? body : JSON.stringify(body),
+  });
+
+  before(async () => {
+    tg = fakeTelegram();
+    ctx = await startApp({ token: TOKEN, telegram: tg });
+  });
+  after(() => ctx.close());
+
+  test("correct secret: 200 with an empty body, update handled by the bot", async () => {
+    tg.calls.length = 0;
+    const res = await post({ update_id: 100, message: privateMsg("/help", { language_code: "pt-br" }) });
+    assert.equal(res.status, 200);
+    assert.equal(await res.text(), "");
+    await ctx.app.idle();
+    const [sent] = tg.named("sendRichMessage");
+    assert.equal(sent.params.chat_id, 42);
+    assert.ok(JSON.stringify(sent.params.rich_message.blocks).includes("esta mensagem"));
+  });
+
+  test("answers before the handler finishes", async () => {
+    tg.calls.length = 0;
+    let started;
+    const handlerStarted = new Promise((resolve) => { started = resolve; });
+    const slow = fakeTelegram({
+      sendRichMessage: () => new Promise((resolve) => { started(); release = () => resolve({ ok: true }); }),
+    });
+    const c2 = await startApp({ token: TOKEN, telegram: slow });
+    try {
+      const res = await fetch(`${c2.base}${WEBHOOK_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": SECRET },
+        body: JSON.stringify({ update_id: 1, message: privateMsg("/start") }),
+      });
+      assert.equal(res.status, 200);
+      await handlerStarted;
+      assert.equal(slow.named("sendRichMessage").length, 1, "handler is still running after the 200");
+      release();
+      await c2.app.idle();
+    } finally {
+      await c2.close();
+    }
+  });
+
+  test("wrong or missing secret is rejected with 401 and not handled", async () => {
+    tg.calls.length = 0;
+    assert.equal((await post({ update_id: 101, message: privateMsg("/help") }, { "x-telegram-bot-api-secret-token": "wrong" })).status, 401);
+    const missing = await fetch(`${ctx.base}${WEBHOOK_PATH}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ update_id: 102, message: privateMsg("/help") }),
+    });
+    assert.equal(missing.status, 401);
+    await ctx.app.idle();
+    assert.equal(tg.calls.length, 0);
+  });
+
+  test("non-POST is rejected (405 with Allow: POST)", async () => {
+    const res = await fetch(`${ctx.base}${WEBHOOK_PATH}`, { headers: { "x-telegram-bot-api-secret-token": SECRET } });
+    assert.equal(res.status, 405);
+    assert.equal(res.headers.get("allow"), "POST");
+    const anon = await fetch(`${ctx.base}${WEBHOOK_PATH}`);
+    assert.equal(anon.status, 401, "without the secret even GET learns nothing");
+  });
+
+  test("non-JSON, invalid JSON and updates without update_id are rejected", async () => {
+    assert.equal((await post("{}", { "content-type": "text/plain" })).status, 415);
+    assert.equal((await post("{not json")).status, 400);
+    assert.equal((await post({ message: {} })).status, 400);
+  });
+
+  test("bodies over 1 MB are rejected with 413", async () => {
+    const res = await post({ update_id: 103, message: privateMsg("x".repeat(1024 * 1024 + 10)) });
+    assert.equal(res.status, 413);
+  });
+
+  test("the same update_id is handled once", async () => {
+    tg.calls.length = 0;
+    const update = { update_id: 104, message: privateMsg("/start") };
+    assert.equal((await post(update)).status, 200);
+    assert.equal((await post(update)).status, 200);
+    await ctx.app.idle();
+    assert.equal(tg.named("sendRichMessage").length, 1);
+  });
+
+  test("handler errors still answer 200 (no Telegram retries) and are logged", async () => {
+    const logs = [];
+    const broken = fakeTelegram({ sendRichMessage: () => { throw new Error("boom"); } });
+    const c2 = await startApp({ token: TOKEN, telegram: broken, log: (...m) => logs.push(m.join(" ")) });
+    try {
+      const res = await fetch(`${c2.base}${WEBHOOK_PATH}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", "x-telegram-bot-api-secret-token": SECRET },
+        body: JSON.stringify({ update_id: 1, message: privateMsg("/start") }),
+      });
+      assert.equal(res.status, 200);
+      await c2.app.idle();
+      assert.ok(logs.some((l) => l.includes("boom")));
+    } finally {
+      await c2.close();
+    }
+  });
+
+  test("group updates via webhook still never run commands (PR #1 behaviour)", async () => {
+    tg.calls.length = 0;
+    const group = { ...privateMsg("/start"), chat: { id: -900, type: "group" } };
+    assert.equal((await post({ update_id: 105, message: group })).status, 200);
+    await ctx.app.idle();
+    assert.deepEqual(tg.calls.map((c) => c.method), ["leaveChat"]);
+  });
+
+  test("without BOT_TOKEN the webhook answers 503", async () => {
+    const c2 = await startApp({ token: "", telegram: fakeTelegram() });
+    try {
+      const res = await fetch(`${c2.base}${WEBHOOK_PATH}`, { method: "POST", headers: { "content-type": "application/json" }, body: "{}" });
+      assert.equal(res.status, 503);
+    } finally {
+      await c2.close();
+    }
+  });
+});
+
+describe("shutdown", () => {
+  test("stop() waits for in-flight updates and closes the server", async () => {
+    let finish;
+    const tg = fakeTelegram({ sendRichMessage: () => new Promise((resolve) => { finish = () => resolve({ ok: true }); }) });
+    const ctx = await startApp({ token: TOKEN, telegram: tg });
+    const job = ctx.app.dispatch({ update_id: 1, message: privateMsg("/start") });
+    let stopped = false;
+    const stopping = ctx.app.stop().then(() => { stopped = true; });
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    assert.equal(stopped, false, "still waiting for the update");
+    finish();
+    await job;
+    await stopping;
+    assert.equal(stopped, true);
+    assert.equal(ctx.app.server.listening, false);
+    await ctx.close();
   });
 });

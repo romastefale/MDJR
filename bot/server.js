@@ -8,15 +8,63 @@ import { LANGS, pickLang, texts } from "./i18n.js";
 
 const MAX_SONG = 22 * 1024 * 1024;
 const MAX_DRAFT = 100_000;
+const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
 const APP_VERSION = "36"; // keep in sync with web/index.html (?v=) and the app bundle
 const KNOWN_ORIGINS = ["https://romastefale.github.io", "https://mdjr.up.railway.app"];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
 const MEMBER_STATUSES = new Set(["creator", "administrator", "member", "restricted"]);
+const SECRET_CHARSET = /^[A-Za-z0-9_-]{1,256}$/; // setWebhook secret_token rules
+
+// Webhook (https://core.telegram.org/bots/api#setwebhook). Only the update types handled in
+// handleUpdate() are requested.
+export const WEBHOOK_PATH = "/telegram/webhook";
+export const ALLOWED_UPDATES = ["message", "my_chat_member"];
 
 export function publicOrigin(env = process.env) {
   if (env.PUBLIC_URL) return env.PUBLIC_URL.replace(/\/$/, "");
   if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
   return "https://mdjr.up.railway.app";
+}
+
+// Public HTTPS origin Telegram can reach for the webhook, or null (e.g. local dev).
+// Same sources as publicOrigin(); on Railway without a domain variable it uses the same
+// default origin the Mini App already uses.
+export function webhookOrigin(env = process.env) {
+  const onRailway = Boolean(env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_PROJECT_ID || env.RAILWAY_SERVICE_ID);
+  if (!env.PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN && !onRailway) return null;
+  const origin = publicOrigin(env);
+  return /^https:\/\/[^/]+$/i.test(origin) ? origin : null;
+}
+
+export function isValidSecret(value) {
+  return typeof value === "string" && SECRET_CHARSET.test(value);
+}
+
+// WEBHOOK_SECRET if valid; otherwise a stable secret derived from the bot token
+// (64 hex chars, inside the allowed A-Z a-z 0-9 _ - charset), so redeploys need no new variable.
+export function webhookSecret(token, env = process.env) {
+  if (isValidSecret(env.WEBHOOK_SECRET)) return env.WEBHOOK_SECRET;
+  if (!token) return "";
+  return crypto.createHmac("sha256", token).update("mdjr-webhook-secret-v1").digest("hex");
+}
+
+// Parameters for setWebhook. drop_pending_updates is deliberately not sent (defaults to false):
+// updates queued while the service restarts are real user messages and should still be answered.
+export function webhookParams(token, env = process.env) {
+  const origin = webhookOrigin(env);
+  const secret = webhookSecret(token, env);
+  if (!origin || !secret) return null;
+  return { url: `${origin}${WEBHOOK_PATH}`, secret_token: secret, allowed_updates: ALLOWED_UPDATES };
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest();
+}
+
+// Constant-time comparison that also hides the length of the expected value.
+export function sameSecret(received, expected) {
+  if (!expected || typeof received !== "string" || !received) return false;
+  return crypto.timingSafeEqual(sha256(received), sha256(expected));
 }
 
 export function appUrl(origin, draftId) {
@@ -103,11 +151,22 @@ export function plainMessage(reply) {
   return message;
 }
 
-export function createApp({ token = "", telegram, volume = "/mdjr-volume", env = process.env, log = console.error } = {}) {
+export function createApp({
+  token = "",
+  telegram,
+  volume = "/mdjr-volume",
+  env = process.env,
+  log = console.error,
+  info = console.log,
+} = {}) {
   const origin = publicOrigin(env);
   const allowed = new Set([...KNOWN_ORIGINS, origin]);
-  const state = { username: null };
+  const secret = webhookSecret(token, env);
+  const state = { username: null, mode: "off", stopping: false };
   const leaving = new Set();
+  const inflight = new Set();
+  const seen = new Set();
+  const seenOrder = [];
 
   // ---------- drafts on disk ----------
   function userDir(userId) {
@@ -258,6 +317,31 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     else if (update.my_chat_member) await onMyChatMember(update.my_chat_member);
   }
 
+  // Telegram may deliver an update again (e.g. after a timeout); handle each update_id once.
+  function firstTime(updateId) {
+    if (seen.has(updateId)) return false;
+    seen.add(updateId);
+    seenOrder.push(updateId);
+    if (seenOrder.length > 1000) seen.delete(seenOrder.shift());
+    return true;
+  }
+
+  // Runs an update in the background, tracked so shutdown can wait for it. Never rejects.
+  function dispatch(update) {
+    const job = Promise.resolve()
+      .then(() => handleUpdate(update))
+      .catch((err) => log("update", err instanceof Error ? err.message : err))
+      .finally(() => inflight.delete(job));
+    inflight.add(job);
+    return job;
+  }
+
+  async function idle() {
+    while (inflight.size) await Promise.allSettled([...inflight]);
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   async function setup() {
     for (let delay = 2000; ; delay = Math.min(delay * 2, 60000)) {
       const me = await telegram.call("getMe");
@@ -265,7 +349,8 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
         state.username = me.result.username;
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (state.stopping) return;
+      await wait(delay);
     }
     // Commands only in private chats (BotCommandScopeAllPrivateChats); drop any old default list
     // so nothing is suggested in groups. https://core.telegram.org/bots/api#determining-list-of-commands
@@ -278,30 +363,72 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       await telegram.call("setMyShortDescription", { short_description: tx.shortDescription, ...language });
     }
     await telegram.call("setChatMenuButton", { menu_button: { type: "web_app", text: "Math DJ", web_app: { url: appUrl(origin) } } });
-    console.log("mini app", appUrl(origin), "bot", `@${state.username}`);
+    info("mini app", appUrl(origin), "bot", `@${state.username}`);
   }
 
+  // Local development only (USE_POLLING=1). Production uses the webhook.
   async function poll() {
     let offset = 0;
-    for (;;) {
-      const data = await telegram.call(
-        "getUpdates",
-        { offset, timeout: 25, allowed_updates: ["message", "my_chat_member"] },
-        { retries: 0 },
-      );
+    while (!state.stopping) {
+      const data = await telegram.call("getUpdates", { offset, timeout: 25, allowed_updates: ALLOWED_UPDATES }, { retries: 0 });
+      if (state.stopping) break;
       if (!data.ok) {
-        await new Promise((resolve) => setTimeout(resolve, (Number(data.parameters?.retry_after) || 3) * 1000));
+        await wait((Number(data.parameters?.retry_after) || 3) * 1000);
         continue;
       }
       for (const update of data.result || []) {
         offset = update.update_id + 1;
-        try {
-          await handleUpdate(update);
-        } catch (err) {
-          log("update", err instanceof Error ? err.message : err);
-        }
+        if (firstTime(update.update_id)) await dispatch(update);
       }
     }
+  }
+
+  // Configures the bot and starts receiving updates: webhook by default, polling only with
+  // USE_POLLING=1. Returns the mode ("webhook", "polling" or "off").
+  async function start() {
+    if (!token) {
+      log("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
+      return (state.mode = "off");
+    }
+    await setup();
+    if (state.stopping) return state.mode;
+    if (env.USE_POLLING === "1") {
+      // getUpdates does not work while a webhook is set; pending updates are kept.
+      await telegram.call("deleteWebhook", {});
+      info("USE_POLLING=1: webhook removido, recebendo updates por getUpdates (só para desenvolvimento).");
+      state.mode = "polling";
+      state.polling = poll();
+      return state.mode;
+    }
+    if (env.WEBHOOK_SECRET && !isValidSecret(env.WEBHOOK_SECRET)) {
+      log("WEBHOOK_SECRET inválido (use 1-256 caracteres A-Z a-z 0-9 _ -); usando o segredo derivado do token.");
+    }
+    const params = webhookParams(token, env);
+    if (!params) {
+      log(
+        "Sem URL pública HTTPS (PUBLIC_URL ou RAILWAY_PUBLIC_DOMAIN): o webhook não foi configurado e o bot não recebe mensagens. " +
+          "Para desenvolvimento local, rode com USE_POLLING=1.",
+      );
+      return (state.mode = "off");
+    }
+    for (let delay = 2000; !state.stopping; delay = Math.min(delay * 2, 60000)) {
+      const done = await telegram.call("setWebhook", params);
+      if (done.ok) {
+        info("webhook", params.url);
+        return (state.mode = "webhook");
+      }
+      await wait(delay);
+    }
+    return state.mode;
+  }
+
+  async function stop() {
+    state.stopping = true;
+    await new Promise((resolve) => {
+      server.close(() => resolve());
+      server.closeIdleConnections?.();
+    });
+    await idle();
   }
 
   // ---------- HTTP ----------
@@ -411,6 +538,32 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     json(res, sent.ok ? 200 : 502, { ok: Boolean(sent.ok) });
   }
 
+  // Telegram webhook: secret header first, then POST + JSON + size checks. The update is
+  // acknowledged with an empty 200 right away and handled in the background, so slow Bot API
+  // calls never make Telegram time out and resend it; handler errors are logged, never a 5xx.
+  async function onWebhook(req, res) {
+    if (!token || !secret) return json(res, 503, { ok: false });
+    if (!sameSecret(req.headers["x-telegram-bot-api-secret-token"], secret)) return json(res, 401, { ok: false });
+    if (req.method !== "POST") return json(res, 405, { ok: false }, { allow: "POST" });
+    if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers["content-type"] || ""))) return json(res, 415, { ok: false });
+    let raw;
+    try {
+      raw = await readBody(req, MAX_UPDATE);
+    } catch (err) {
+      return fail(req, res, err);
+    }
+    let update;
+    try {
+      update = JSON.parse(raw.toString("utf8"));
+    } catch {
+      return json(res, 400, { ok: false });
+    }
+    if (!update || typeof update !== "object" || !Number.isSafeInteger(update.update_id)) return json(res, 400, { ok: false });
+    res.writeHead(200, { "content-length": "0" });
+    res.end();
+    if (firstTime(update.update_id)) dispatch(update);
+  }
+
   async function onDrafts(req, res, urlPath) {
     if (!token) return json(res, 503, { ok: false });
     const user = validateInitData(req.headers["x-telegram-init-data"] || "", token);
@@ -451,6 +604,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
         res.end();
         return;
       }
+      if (urlPath === WEBHOOK_PATH) return await onWebhook(req, res);
       if (urlPath === "/health") {
         cors(req, res);
         // The app only reads `webapp` (its version check). No bot/token details here.
@@ -474,7 +628,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     }
   });
 
-  return { server, handleUpdate, setup, poll, state };
+  return { server, handleUpdate, dispatch, idle, setup, start, stop, state };
 }
 
 function isEntryPoint() {
@@ -498,12 +652,19 @@ if (isMain) {
   });
   app.server.listen(port, "0.0.0.0", () => {
     console.log(`mdjr-bot na porta ${port}`);
-    if (!token) {
-      console.error("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
-      return;
-    }
-    app.setup()
-      .then(() => app.poll())
-      .catch((err) => console.error("setup", err instanceof Error ? err.message : err));
+    app.start().catch((err) => console.error("start", err instanceof Error ? err.message : err));
   });
+
+  // Graceful shutdown: stop accepting requests and let in-flight updates finish (max 8 s).
+  // The webhook is not deleted, so the next deploy keeps receiving updates at the same URL.
+  let closing = false;
+  const shutdown = (signal) => {
+    if (closing) return;
+    closing = true;
+    console.log(`${signal}: encerrando`);
+    setTimeout(() => process.exit(0), 8000).unref();
+    app.stop().finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }

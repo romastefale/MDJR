@@ -29,11 +29,32 @@ O bot funciona só no **chat privado**: em grupos e canais ele não responde e s
 
 O site fica em `web/` e é publicado no GitHub Pages pela Action. O bot e a API ficam em `bot/server.js` (Node 20 ou mais novo), pensados para o Railway.
 
+### Variáveis
+
 - `BOT_TOKEN` (obrigatória): o token do bot
-- `PUBLIC_URL` (opcional): o endereço público do servidor, por padrão `https://mdjr.up.railway.app`
+- `PUBLIC_URL` (opcional): o endereço público HTTPS do servidor. Sem ela, o servidor usa o `RAILWAY_PUBLIC_DOMAIN` que o Railway cria sozinho, e por fim `https://mdjr.up.railway.app`
+- `WEBHOOK_SECRET` (opcional): o segredo do webhook, de 1 a 256 caracteres `A-Z a-z 0-9 _ -`. Sem ela, o servidor deriva um segredo fixo a partir do token, que não muda entre deploys
+- `USE_POLLING=1` (só para desenvolvimento local): apaga o webhook e recebe as mensagens por `getUpdates`
 - Monte um volume em `/mdjr-volume` para guardar o progresso e os rascunhos
 
-Para testar localmente (sem token e sem falar com o Telegram): `npm test`.
+No Railway basta o `BOT_TOKEN` e o volume. Não é preciso criar outra variável.
+
+### Webhook
+
+O bot recebe as mensagens pelo [webhook oficial](https://core.telegram.org/bots/api#setwebhook), e não mais por polling. A cada inicialização, o servidor:
+
+1. chama `setWebhook` com `https://<endereço público>/telegram/webhook`, o `secret_token` e `allowed_updates` só com `message` e `my_chat_member`;
+2. não descarta as mensagens pendentes (`drop_pending_updates` fica desligado), para responder quem escreveu durante o deploy.
+
+Na rota `/telegram/webhook`, o servidor confere o cabeçalho `X-Telegram-Bot-Api-Secret-Token` antes de tudo e responde 401 se ele não bater. Também aceita só `POST` com JSON de até 1 MB. Ele responde 200 na hora e trata a mensagem em seguida, então um erro no tratamento nunca faz o Telegram reenviar a mesma mensagem.
+
+No `SIGTERM` (deploy novo), o servidor para de aceitar conexões, espera as mensagens em andamento (até 8 s) e sai. O webhook continua apontando para o mesmo endereço, que o próximo deploy assume.
+
+Se o servidor não encontrar um endereço público HTTPS (por exemplo, rodando no seu computador), ele avisa no log e não recebe mensagens. Para testar o bot localmente com um token de teste, rode `USE_POLLING=1 BOT_TOKEN=... npm start`. Isso apaga o webhook desse bot, então use um bot de teste, não o de produção.
+
+### Testes
+
+`npm test` roda os testes com `node:test`, sem dependências, sem token e sem falar com o Telegram. `npm run check` confere a sintaxe.
 
 ## Licença
 
