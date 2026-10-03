@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=33`;
+  return `${publicOrigin()}/?v=34`;
 }
 
 async function api(method, body) {
@@ -143,7 +143,7 @@ function writeProject(userId, id, body) {
       ranked.push({ name, updated });
     }
     ranked.sort((a, b) => b.updated - a.updated);
-    for (const item of ranked.slice(12)) fs.unlinkSync(path.join(dir, item.name));
+    for (const item of ranked.slice(5)) fs.unlinkSync(path.join(dir, item.name));
   }
   return { id: project.id, name: project.name, updated: project.updated };
 }
@@ -175,7 +175,7 @@ function listDrafts(userId) {
     })
     .filter(Boolean)
     .sort((a, b) => b.updated - a.updated)
-    .slice(0, 12);
+    .slice(0, 5);
 }
 
 function htmlEscape(value) {
@@ -189,7 +189,7 @@ function htmlEscape(value) {
 
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=33&draft=${encodeURIComponent(draftId)}` : `${base}/?v=33`;
+  return draftId ? `${base}/?v=34&draft=${encodeURIComponent(draftId)}` : `${base}/?v=34`;
 }
 
 function linkButton(label, url) {
