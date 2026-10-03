@@ -1,13 +1,18 @@
 // Minimal Bot API client: one place for requests, 429 handling and logging.
 // https://core.telegram.org/bots/api#making-requests
 // https://core.telegram.org/bots/api#responseparameters (retry_after)
+// Request URLs contain the token, so they are never logged; every log line is redacted.
+
+import { createRedactor, describe } from "./log.js";
 
 const sleepMs = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createTelegram(token, options = {}) {
   const fetchImpl = options.fetch || globalThis.fetch;
   const sleep = options.sleep || sleepMs;
-  const log = options.log || console.error;
+  const sink = options.log || console.error;
+  const redact = createRedactor([token]);
+  const log = (text) => sink(redact(text));
   const maxRetryAfter = options.maxRetryAfter ?? 30;
   const base = `https://api.telegram.org/bot${token}/`;
 
@@ -23,7 +28,7 @@ export function createTelegram(token, options = {}) {
         const res = await fetchImpl(base + method, init);
         data = await res.json().catch(() => ({ ok: false, error_code: res.status, description: "invalid JSON response" }));
       } catch (err) {
-        data = { ok: false, description: err instanceof Error ? err.message : String(err) };
+        data = { ok: false, description: describe(err) };
       }
       if (data.ok) return data;
       const wait = Number(data.parameters?.retry_after);

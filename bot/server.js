@@ -4,19 +4,101 @@ import http from "node:http";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { createTelegram } from "./telegram.js";
+import { createLogger } from "./log.js";
 import { LANGS, pickLang, texts } from "./i18n.js";
 
 const MAX_SONG = 22 * 1024 * 1024;
-const MAX_DRAFT = 100_000;
+// Drafts (Decisão do Pi, 2026-10-03): up to 8 per user, with sizes that follow a real draft.
+// web/app.js POSTs { name, rows, seconds, patch } to /drafts:
+//   name    first formula cut to 32 characters
+//   rows    5 rows of { id, y, on, color, bpm, vol }; y is the formula, with NO length cap in the app
+//   seconds one of 30…1200
+//   patch   the knob object: the app's defaults (mode, presetId, formula, engine, x, y, z, w, a, b,
+//           g, d, bpm, vol, lpf, res, pan, seconds) plus muted
+// Two different numbers:
+// 1. Stored size (what goes to disk) is bounded by projectFrom(): name ≤ 32, 5 rows, formula ≤ 500,
+//    color ≤ 40, only the knob fields in patch (strings ≤ 40, patch formula ≤ 500, finite numbers).
+//    Measured on this server with JSON.stringify, every field at its cap, every number at its longest
+//    text form (-1.7976931348623157e+308):
+//      ASCII text                                              about 3.5 KB
+//      every character a 3-byte UTF-8 symbol (− ≤ ·)           10,969 bytes
+//      every character escaped as \uXXXX (control characters
+//      or lone surrogates, 6 bytes each): absolute maximum     21,045 bytes  → bound: 21 KB
+// 2. Request cap (what /drafts reads) only protects the server; it is not the draft size. The app does
+//    not cap formulas, so longer ones must still be accepted and trimmed to 500, as before this PR.
+//    128 KB stays above the 100 KB the server accepted before, so nothing that used to save is now
+//    refused; it fits 5 ASCII formulas of ~26,000 characters each, about 6× the stored maximum.
+const MAX_DRAFTS = 8;
+const MAX_DRAFT_BODY = 128 * 1024;
+const MAX_FORMULA = 500;
+const PATCH_STRINGS = { mode: 40, presetId: 40, engine: 40, formula: MAX_FORMULA };
+const PATCH_NUMBERS = ["x", "y", "z", "w", "a", "b", "g", "d", "bpm", "vol", "lpf", "res", "pan", "seconds"];
+const MAX_UPDATE = 1024 * 1024; // webhook body cap; real updates are a few KB
 const APP_VERSION = "36"; // keep in sync with web/index.html (?v=) and the app bundle
-const KNOWN_ORIGINS = ["https://romastefale.github.io", "https://mdjr.up.railway.app"];
+const DEFAULT_ORIGIN = "https://mdjr.up.railway.app";
+const KNOWN_ORIGINS = ["https://romastefale.github.io", DEFAULT_ORIGIN];
 const PRIVATE_SCOPE = { type: "all_private_chats" };
+const COMMANDS = new Set(["start", "help", "draft"]);
 const MEMBER_STATUSES = new Set(["creator", "administrator", "member", "restricted"]);
+const SECRET_CHARSET = /^[A-Za-z0-9_-]{1,256}$/; // setWebhook secret_token rules
+
+// Webhook (https://core.telegram.org/bots/api#setwebhook). Only the update types handled in
+// handleUpdate() are requested.
+export const WEBHOOK_PATH = "/telegram/webhook";
+export const ALLOWED_UPDATES = ["message", "my_chat_member"];
 
 export function publicOrigin(env = process.env) {
   if (env.PUBLIC_URL) return env.PUBLIC_URL.replace(/\/$/, "");
   if (env.RAILWAY_PUBLIC_DOMAIN) return `https://${env.RAILWAY_PUBLIC_DOMAIN}`;
-  return "https://mdjr.up.railway.app";
+  return DEFAULT_ORIGIN;
+}
+
+// Mini App links must be HTTPS (https://core.telegram.org/bots/api#webappinfo: "An HTTPS URL of a
+// Web App"). With a plain-HTTP PUBLIC_URL (local development) the buttons keep opening the public app.
+export function miniAppOrigin(env = process.env) {
+  const origin = publicOrigin(env);
+  return /^https:\/\/[^/]+$/i.test(origin) ? origin : DEFAULT_ORIGIN;
+}
+
+// Public HTTPS origin Telegram can reach for the webhook, or null (e.g. local dev).
+// Same sources as publicOrigin(); on Railway without a domain variable it uses the same
+// default origin the Mini App already uses.
+export function webhookOrigin(env = process.env) {
+  const onRailway = Boolean(env.RAILWAY_ENVIRONMENT_ID || env.RAILWAY_PROJECT_ID || env.RAILWAY_SERVICE_ID);
+  if (!env.PUBLIC_URL && !env.RAILWAY_PUBLIC_DOMAIN && !onRailway) return null;
+  const origin = publicOrigin(env);
+  return /^https:\/\/[^/]+$/i.test(origin) ? origin : null;
+}
+
+export function isValidSecret(value) {
+  return typeof value === "string" && SECRET_CHARSET.test(value);
+}
+
+// WEBHOOK_SECRET if valid; otherwise a stable secret derived from the bot token
+// (64 hex chars, inside the allowed A-Z a-z 0-9 _ - charset), so redeploys need no new variable.
+export function webhookSecret(token, env = process.env) {
+  if (isValidSecret(env.WEBHOOK_SECRET)) return env.WEBHOOK_SECRET;
+  if (!token) return "";
+  return crypto.createHmac("sha256", token).update("mdjr-webhook-secret-v1").digest("hex");
+}
+
+// Parameters for setWebhook. drop_pending_updates is deliberately not sent (defaults to false):
+// updates queued while the service restarts are real user messages and should still be answered.
+export function webhookParams(token, env = process.env) {
+  const origin = webhookOrigin(env);
+  const secret = webhookSecret(token, env);
+  if (!origin || !secret) return null;
+  return { url: `${origin}${WEBHOOK_PATH}`, secret_token: secret, allowed_updates: ALLOWED_UPDATES };
+}
+
+function sha256(value) {
+  return crypto.createHash("sha256").update(value).digest();
+}
+
+// Constant-time comparison that also hides the length of the expected value.
+export function sameSecret(received, expected) {
+  if (!expected || typeof received !== "string" || !received) return false;
+  return crypto.timingSafeEqual(sha256(received), sha256(expected));
 }
 
 export function appUrl(origin, draftId) {
@@ -103,11 +185,24 @@ export function plainMessage(reply) {
   return message;
 }
 
-export function createApp({ token = "", telegram, volume = "/mdjr-volume", env = process.env, log = console.error } = {}) {
-  const origin = publicOrigin(env);
-  const allowed = new Set([...KNOWN_ORIGINS, origin]);
-  const state = { username: null };
+export function createApp({
+  token = "",
+  telegram,
+  volume = "/mdjr-volume",
+  env = process.env,
+  log = console.error,
+  info = console.log,
+} = {}) {
+  const origin = miniAppOrigin(env);
+  const allowed = new Set([...KNOWN_ORIGINS, publicOrigin(env)]);
+  const secret = webhookSecret(token, env);
+  // Every log line from the app is redacted (token, webhook secret, token-shaped strings).
+  const logger = createLogger({ secrets: [token, secret, env.WEBHOOK_SECRET], sink: { error: log, log: info } });
+  const state = { username: null, mode: "off", stopping: false };
   const leaving = new Set();
+  const inflight = new Set();
+  const seen = new Set();
+  const seenOrder = [];
 
   // ---------- drafts on disk ----------
   function userDir(userId) {
@@ -127,9 +222,23 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     return name || "Untitled";
   }
 
+  // Only the knob fields the app reads back ({ ...defaults, ...patch }), each bounded.
+  function patchFrom(value) {
+    const patch = {};
+    if (!value || typeof value !== "object" || Array.isArray(value)) return patch;
+    for (const [key, max] of Object.entries(PATCH_STRINGS)) {
+      if (typeof value[key] === "string") patch[key] = value[key].slice(0, max);
+    }
+    for (const key of PATCH_NUMBERS) {
+      if (typeof value[key] === "number" && Number.isFinite(value[key])) patch[key] = value[key];
+    }
+    if (typeof value.muted === "boolean") patch.muted = value.muted;
+    return patch;
+  }
+
   function projectFrom(body, id) {
     const rows = Array.isArray(body?.rows) ? body.rows.slice(0, 5).map((row) => ({
-      y: String(row?.y || "").slice(0, 500),
+      y: String(row?.y || "").slice(0, MAX_FORMULA),
       on: Boolean(row?.on),
       color: String(row?.color || "").slice(0, 40),
       bpm: Math.min(180, Math.max(80, Math.round(Number(row?.bpm) || 120))),
@@ -140,7 +249,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       name: id === "progress" ? "Progress" : cleanName(body?.name),
       updated: Date.now(),
       seconds: Math.min(1200, Math.max(1, Number(body?.seconds) || 60)),
-      patch: body?.patch && typeof body.patch === "object" ? body.patch : {},
+      patch: patchFrom(body?.patch),
       rows,
     };
   }
@@ -163,7 +272,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
         }
       }
       ranked.sort((a, b) => b.updated - a.updated);
-      for (const item of ranked.slice(5)) fs.unlinkSync(path.join(dir, item.name));
+      for (const item of ranked.slice(MAX_DRAFTS)) fs.unlinkSync(path.join(dir, item.name));
     }
     return { id: project.id, name: project.name, updated: project.updated };
   }
@@ -195,7 +304,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       })
       .filter(Boolean)
       .sort((a, b) => b.updated - a.updated)
-      .slice(0, 5);
+      .slice(0, MAX_DRAFTS);
   }
 
   // ---------- bot side (private chats only) ----------
@@ -212,8 +321,6 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     const open = { label: tx.open, url: appUrl(origin) };
     if (kind === "start") return { title: tx.name, paragraphs: [tx.tagline], buttons: [open] };
     if (kind === "help") return { title: tx.name, paragraphs: [tx.helpIntro, tx.helpSong], list: tx.helpCommands, buttons: [open] };
-    if (kind === "unknown") return { title: tx.name, paragraphs: [tx.unknownCommand], buttons: [open] };
-    if (kind === "text") return { title: tx.name, paragraphs: [tx.plainText], buttons: [open] };
     if (kind === "draft") {
       const drafts = listDrafts(userId);
       return drafts.length
@@ -237,15 +344,11 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       if (message.chat.type === "group" || message.chat.type === "supergroup") await leave(message.chat);
       return;
     }
-    const lang = pickLang(from.language_code);
+    // Only the bot's own commands get a reply. Unknown commands and plain text are ignored
+    // (Decisão do Pi, 2026-10-03: "ele tem os comandos dele já" — /start, /help, /draft).
     const command = parseCommand(message);
-    if (command) {
-      if (!isForThisBot(command, state.username)) return;
-      const kind = ["start", "help", "draft"].includes(command.name) ? command.name : "unknown";
-      await send(message, replyFor(kind, lang, from.id));
-      return;
-    }
-    if (typeof message.text === "string" && message.text.trim()) await send(message, replyFor("text", lang, from.id));
+    if (!command || !isForThisBot(command, state.username) || !COMMANDS.has(command.name)) return;
+    await send(message, replyFor(command.name, pickLang(from.language_code), from.id));
   }
 
   // https://core.telegram.org/bots/api#chatmemberupdated — the bot's own membership changes.
@@ -258,6 +361,31 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     else if (update.my_chat_member) await onMyChatMember(update.my_chat_member);
   }
 
+  // Telegram may deliver an update again (e.g. after a timeout); handle each update_id once.
+  function firstTime(updateId) {
+    if (seen.has(updateId)) return false;
+    seen.add(updateId);
+    seenOrder.push(updateId);
+    if (seenOrder.length > 1000) seen.delete(seenOrder.shift());
+    return true;
+  }
+
+  // Runs an update in the background, tracked so shutdown can wait for it. Never rejects.
+  function dispatch(update) {
+    const job = Promise.resolve()
+      .then(() => handleUpdate(update))
+      .catch((err) => logger.error("update", err))
+      .finally(() => inflight.delete(job));
+    inflight.add(job);
+    return job;
+  }
+
+  async function idle() {
+    while (inflight.size) await Promise.allSettled([...inflight]);
+  }
+
+  const wait = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
   async function setup() {
     for (let delay = 2000; ; delay = Math.min(delay * 2, 60000)) {
       const me = await telegram.call("getMe");
@@ -265,7 +393,8 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
         state.username = me.result.username;
         break;
       }
-      await new Promise((resolve) => setTimeout(resolve, delay));
+      if (state.stopping) return;
+      await wait(delay);
     }
     // Commands only in private chats (BotCommandScopeAllPrivateChats); drop any old default list
     // so nothing is suggested in groups. https://core.telegram.org/bots/api#determining-list-of-commands
@@ -278,30 +407,73 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       await telegram.call("setMyShortDescription", { short_description: tx.shortDescription, ...language });
     }
     await telegram.call("setChatMenuButton", { menu_button: { type: "web_app", text: "Math DJ", web_app: { url: appUrl(origin) } } });
-    console.log("mini app", appUrl(origin), "bot", `@${state.username}`);
+    logger.info("mini app", appUrl(origin), "bot", `@${state.username}`);
   }
 
+  // Local development only (USE_POLLING=1). Production uses the webhook.
   async function poll() {
     let offset = 0;
-    for (;;) {
-      const data = await telegram.call(
-        "getUpdates",
-        { offset, timeout: 25, allowed_updates: ["message", "my_chat_member"] },
-        { retries: 0 },
-      );
+    while (!state.stopping) {
+      const data = await telegram.call("getUpdates", { offset, timeout: 25, allowed_updates: ALLOWED_UPDATES }, { retries: 0 });
+      if (state.stopping) break;
       if (!data.ok) {
-        await new Promise((resolve) => setTimeout(resolve, (Number(data.parameters?.retry_after) || 3) * 1000));
+        await wait((Number(data.parameters?.retry_after) || 3) * 1000);
         continue;
       }
       for (const update of data.result || []) {
         offset = update.update_id + 1;
-        try {
-          await handleUpdate(update);
-        } catch (err) {
-          log("update", err instanceof Error ? err.message : err);
-        }
+        if (firstTime(update.update_id)) await dispatch(update);
       }
     }
+  }
+
+  // Configures the bot and starts receiving updates: webhook by default, polling only with
+  // USE_POLLING=1. Returns the mode ("webhook", "polling" or "off").
+  async function start() {
+    if (!token) {
+      logger.error("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
+      return (state.mode = "off");
+    }
+    await setup();
+    if (state.stopping) return state.mode;
+    if (env.USE_POLLING === "1") {
+      // getUpdates does not work while a webhook is set; pending updates are kept.
+      await telegram.call("deleteWebhook", {});
+      logger.info("USE_POLLING=1: webhook removido, recebendo updates por getUpdates (só para desenvolvimento).");
+      state.mode = "polling";
+      state.polling = poll();
+      return state.mode;
+    }
+    if (env.WEBHOOK_SECRET && !isValidSecret(env.WEBHOOK_SECRET)) {
+      logger.error("WEBHOOK_SECRET inválido (use 1-256 caracteres A-Z a-z 0-9 _ -); usando o segredo derivado do token.");
+    }
+    const params = webhookParams(token, env);
+    if (!params) {
+      logger.error(
+        "Sem URL pública HTTPS (PUBLIC_URL ou RAILWAY_PUBLIC_DOMAIN): o webhook não foi configurado e o bot não recebe mensagens. " +
+          "Para desenvolvimento local, rode com USE_POLLING=1.",
+      );
+      return (state.mode = "off");
+    }
+    for (let delay = 2000; !state.stopping; delay = Math.min(delay * 2, 60000)) {
+      const done = await telegram.call("setWebhook", params);
+      if (done.ok) {
+        // Only the public endpoint; never the secret_token or the rest of the payload.
+        logger.info("webhook", params.url);
+        return (state.mode = "webhook");
+      }
+      await wait(delay);
+    }
+    return state.mode;
+  }
+
+  async function stop() {
+    state.stopping = true;
+    await new Promise((resolve) => {
+      server.close(() => resolve());
+      server.closeIdleConnections?.();
+    });
+    await idle();
   }
 
   // ---------- HTTP ----------
@@ -411,6 +583,32 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     json(res, sent.ok ? 200 : 502, { ok: Boolean(sent.ok) });
   }
 
+  // Telegram webhook: secret header first, then POST + JSON + size checks. The update is
+  // acknowledged with an empty 200 right away and handled in the background, so slow Bot API
+  // calls never make Telegram time out and resend it; handler errors are logged, never a 5xx.
+  async function onWebhook(req, res) {
+    if (!token || !secret) return json(res, 503, { ok: false });
+    if (!sameSecret(req.headers["x-telegram-bot-api-secret-token"], secret)) return json(res, 401, { ok: false });
+    if (req.method !== "POST") return json(res, 405, { ok: false }, { allow: "POST" });
+    if (!/^application\/json(?:\s*;|$)/i.test(String(req.headers["content-type"] || ""))) return json(res, 415, { ok: false });
+    let raw;
+    try {
+      raw = await readBody(req, MAX_UPDATE);
+    } catch (err) {
+      return fail(req, res, err);
+    }
+    let update;
+    try {
+      update = JSON.parse(raw.toString("utf8"));
+    } catch {
+      return json(res, 400, { ok: false });
+    }
+    if (!update || typeof update !== "object" || !Number.isSafeInteger(update.update_id)) return json(res, 400, { ok: false });
+    res.writeHead(200, { "content-length": "0" });
+    res.end();
+    if (firstTime(update.update_id)) dispatch(update);
+  }
+
   async function onDrafts(req, res, urlPath) {
     if (!token) return json(res, 503, { ok: false });
     const user = validateInitData(req.headers["x-telegram-init-data"] || "", token);
@@ -424,7 +622,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
     if (req.method !== "POST") return json(res, 405, { ok: false });
     let raw;
     try {
-      raw = await readBody(req, MAX_DRAFT);
+      raw = await readBody(req, MAX_DRAFT_BODY);
     } catch (err) {
       return fail(req, res, err);
     }
@@ -451,6 +649,7 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
         res.end();
         return;
       }
+      if (urlPath === WEBHOOK_PATH) return await onWebhook(req, res);
       if (urlPath === "/health") {
         cors(req, res);
         // The app only reads `webapp` (its version check). No bot/token details here.
@@ -468,13 +667,13 @@ export function createApp({ token = "", telegram, volume = "/mdjr-volume", env =
       res.writeHead(404, { "content-type": "text/plain; charset=utf-8" });
       res.end("not found");
     } catch (err) {
-      log("http", err instanceof Error ? err.message : err);
+      logger.error("http", err);
       if (!res.headersSent) json(res, 500, { ok: false });
       else res.end();
     }
   });
 
-  return { server, handleUpdate, setup, poll, state };
+  return { server, handleUpdate, dispatch, idle, setup, start, stop, state, logger };
 }
 
 function isEntryPoint() {
@@ -488,22 +687,45 @@ function isEntryPoint() {
 
 const isMain = isEntryPoint();
 
+// Last-resort handler for crashes: logs the (redacted) stack instead of Node's raw output.
+export function crashHandler(logger, exit = (code) => process.exit(code)) {
+  return (kind) => (err) => {
+    logger.crash(kind, err);
+    exit(1);
+  };
+}
+
 if (isMain) {
   const token = process.env.BOT_TOKEN || "";
   const port = Number(process.env.PORT || 3000);
+  const logger = createLogger({
+    secrets: [token, webhookSecret(token, process.env), process.env.WEBHOOK_SECRET],
+  });
+  const onCrash = crashHandler(logger);
+  process.on("uncaughtException", onCrash("uncaughtException"));
+  process.on("unhandledRejection", onCrash("unhandledRejection"));
   const app = createApp({
     token,
-    telegram: createTelegram(token),
+    telegram: createTelegram(token, { log: logger.error }),
     volume: process.env.MDJR_VOLUME || "/mdjr-volume",
+    log: logger.error,
+    info: logger.info,
   });
   app.server.listen(port, "0.0.0.0", () => {
-    console.log(`mdjr-bot na porta ${port}`);
-    if (!token) {
-      console.error("BOT_TOKEN ausente. Crie a variável no Railway e faça redeploy.");
-      return;
-    }
-    app.setup()
-      .then(() => app.poll())
-      .catch((err) => console.error("setup", err instanceof Error ? err.message : err));
+    logger.info(`mdjr-bot na porta ${app.server.address().port}`);
+    app.start().catch((err) => logger.error("start", err));
   });
+
+  // Graceful shutdown: stop accepting requests and let in-flight updates finish (max 8 s).
+  // The webhook is not deleted, so the next deploy keeps receiving updates at the same URL.
+  let closing = false;
+  const shutdown = (signal) => {
+    if (closing) return;
+    closing = true;
+    logger.info(`${signal}: encerrando`);
+    setTimeout(() => process.exit(0), 8000).unref();
+    app.stop().finally(() => process.exit(0));
+  };
+  process.on("SIGTERM", () => shutdown("SIGTERM"));
+  process.on("SIGINT", () => shutdown("SIGINT"));
 }

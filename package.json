@@ -7,7 +7,7 @@
   },
   "scripts": {
     "start": "node bot/server.js",
-    "test": "node --test test/",
-    "check": "node --check bot/server.js && node --check bot/telegram.js && node --check bot/i18n.js"
+    "test": "node --test test/*.test.js",
+    "check": "node --check bot/server.js && node --check bot/telegram.js && node --check bot/i18n.js && node --check bot/log.js && node --check test/bot-api-schema.js && node --check test/fake-bot-api.js"
   }
 }
