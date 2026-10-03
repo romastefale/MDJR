@@ -165,16 +165,12 @@ const bongo = voices((i) => {
   return `(sin(2*PI*${f}*t)+0.4*sin(2*PI*${f * 2}*t))*exp(-${dec}*${B})`;
 });
 
-function named(name, list) {
-  return list.map((y) => ({ name, y }));
-}
-
 export const CARDS = [
-  { id: "kick", voices: [...named("Kick 808", kick808), ...named("Kick 909", kick909), ...named("Kick 606", kick606), ...named("Kick 78", kick78)] },
-  { id: "metal", voices: [...named("Hat Closed", hatClosed), ...named("Hat Open", hatOpen), ...named("Cowbell", cowbell), ...named("Ride", ride)] },
-  { id: "snap", voices: [...named("Snare 808", snare808), ...named("Snare 909", snare909), ...named("Clap", clap), ...named("Rim", rim)] },
-  { id: "bass", voices: [...named("303", acid), ...named("SH-101", sh101), ...named("Juno", juno), ...named("System-100", system100)] },
-  { id: "tom", voices: [...named("Tom 808", tom808), ...named("Tom 909", tom909), ...named("Conga", conga), ...named("Bongo", bongo)] },
+  { id: "kick", voices: [...kick808, ...kick909, ...kick606, ...kick78] },
+  { id: "metal", voices: [...hatClosed, ...hatOpen, ...cowbell, ...ride] },
+  { id: "snap", voices: [...snare808, ...snare909, ...clap, ...rim] },
+  { id: "bass", voices: [...acid, ...sh101, ...juno, ...system100] },
+  { id: "tom", voices: [...tom808, ...tom909, ...conga, ...bongo] },
 ];
 
 const lastHit = [-1, -1, -1, -1, -1];
