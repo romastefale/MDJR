@@ -30,10 +30,9 @@ const kick909 = voices((i) => {
 
 const kick606 = voices((i) => {
   const [a, b] = cell(i);
-  const f = at(a, [46, 52, 58, 66, 74]);
-  const dec = at(b, [10, 14, 18, 24, 32]);
-  const drop = at(a + b, [24, 48, 80, 120, 170]);
-  return `sin(2*PI*(${f}+${drop}*exp(-${dec * 2}*${B}))*t)*exp(-${dec}*${B})`;
+  const f = at(a, [42, 48, 55, 62, 70]);
+  const dec = at(b, [8, 12, 18, 26, 36]);
+  return `sin(2*PI*${f}*t)*min(1,${B}*60)*exp(-${dec}*${B})`;
 });
 
 const kick78 = voices((i) => {
@@ -71,7 +70,7 @@ const ride = voices((i) => {
   const f = at(a, [2400, 3100, 3900, 4800, 6000]);
   const n = at(b, [2, 3, 4, 5, 7]);
   const dec = at(a, [4, 6, 8, 11, 15]);
-  return `sin(2*PI*${f}*t)*abs(sin(PI*(${n}*${B}+0.35)))*exp(-${dec}*${B})`;
+  return `sin(2*PI*${f}*t)*max(0.5,abs(sin(PI*${n}*${B})))*exp(-${dec}*${B})`;
 });
 
 const snare808 = voices((i) => {

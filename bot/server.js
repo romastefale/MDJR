@@ -18,7 +18,7 @@ function publicOrigin() {
 }
 
 function launchUrl() {
-  return `${publicOrigin()}/?v=31`;
+  return `${publicOrigin()}/?v=32`;
 }
 
 async function api(method, body) {
@@ -129,6 +129,17 @@ function writeProject(userId, id, body) {
   if (id !== "progress" && !/^[a-f0-9]{8}$/.test(id)) return null;
   const project = projectFrom(body, id);
   fs.writeFileSync(path.join(dir, file), JSON.stringify(project));
+  if (id !== "progress") {
+    const extra = fs.readdirSync(dir)
+      .filter((name) => /^[a-f0-9]{8}\.json$/.test(name))
+      .map((name) => {
+        const data = JSON.parse(fs.readFileSync(path.join(dir, name), "utf8"));
+        return { name, updated: Number(data.updated) || 0 };
+      })
+      .sort((a, b) => b.updated - a.updated)
+      .slice(12);
+    for (const item of extra) fs.unlinkSync(path.join(dir, item.name));
+  }
   return { id: project.id, name: project.name, updated: project.updated };
 }
 
@@ -183,7 +194,7 @@ function when(ms) {
 
 function appUrl(draftId) {
   const base = publicOrigin();
-  return draftId ? `${base}/?v=31&draft=${encodeURIComponent(draftId)}` : `${base}/?v=31`;
+  return draftId ? `${base}/?v=32&draft=${encodeURIComponent(draftId)}` : `${base}/?v=32`;
 }
 
 function linkButton(label, url) {
@@ -296,6 +307,10 @@ async function poll() {
   for (;;) {
     try {
       const data = await api("getUpdates", { offset, timeout: 25, allowed_updates: ["message"] });
+      if (!data.ok) {
+        await new Promise((resolve) => setTimeout(resolve, (data.parameters?.retry_after ?? 3) * 1000));
+        continue;
+      }
       for (const update of data.result || []) {
         offset = update.update_id + 1;
         if (update.message) await onMessage(update.message);
