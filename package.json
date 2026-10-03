@@ -6,6 +6,8 @@
     "node": ">=20"
   },
   "scripts": {
-    "start": "node bot/server.js"
+    "start": "node bot/server.js",
+    "test": "node --test test/",
+    "check": "node --check bot/server.js && node --check bot/telegram.js && node --check bot/i18n.js"
   }
 }
